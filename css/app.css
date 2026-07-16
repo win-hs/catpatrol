@@ -198,6 +198,25 @@ textarea{resize:none;}
   background:#fff; font-size:17px; cursor:pointer; line-height:1;
 }
 
+/* 驗證錯誤 */
+.invalid{border-color:var(--red); background:#fff6f5;}
+.field-err{font-size:11.5px; color:var(--red); margin:4px 0 0;}
+
+/* 自訂欄位刪除 */
+.cf-del{
+  border:none; background:none; color:var(--muted); font-size:13px;
+  cursor:pointer; padding:2px 4px; flex-shrink:0;
+}
+
+/* dialog */
+dialog{
+  border:none; border-radius:16px; padding:18px; width:min(340px, calc(100vw - 40px));
+  background:var(--card); color:var(--text); font-family:inherit;
+}
+dialog::backdrop{background:rgba(0,0,0,.45);}
+dialog h3{font-size:16px; color:var(--green-dark); margin-bottom:12px;}
+dialog .btn{margin-top:0;}
+
 /* 桌機檢視時把 topbar 內容也對齊到 app 寬度 */
 @media (min-width:520px){
   .topbar{justify-content:center;}

@@ -5,14 +5,6 @@ const STATUS_COLOR = {
   '異常': '#c0392b',
 };
 
-// Phase 2 起改由 IndexedDB 讀取，此處為 shell 展示用資料
-const demoDevices = [
-  { id: 'CAM-A01', lat: 24.28765, lng: 121.01234, status: '正常', note: '2026-06-18 · 電量 85%' },
-  { id: 'CAM-A02', lat: 24.29210, lng: 121.01880, status: '電量低', note: '2026-06-18 · 電量 32%' },
-  { id: 'CAM-B07', lat: 24.28110, lng: 121.02510, status: '異常', note: '2026-05-02 · 停止運作' },
-  { id: 'CAM-B09', lat: 24.27620, lng: 121.01050, status: '待巡檢', note: '超過 60 天未巡檢' },
-];
-
 let map;
 let markerLayer;
 let meMarker;
@@ -77,12 +69,11 @@ export function resizeMap() {
 }
 
 export function initMap() {
-  map = L.map('devmap');
+  map = L.map('devmap').setView([23.7, 121.0], 7);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '© OpenStreetMap',
   }).addTo(map);
   markerLayer = L.layerGroup().addTo(map);
   map.addControl(LocateControl());
-  renderDevices(demoDevices);
 }

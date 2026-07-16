@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相機陷阱巡檢 — UI 原型</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    --green:#2d6a4f; --green-dark:#1b4332; --green-light:#d8f3dc;
+    --amber:#e07a00; --red:#c0392b; --blue:#1d6fa5;
+    --bg:#f4f6f4; --card:#ffffff; --line:#e0e5e0;
+    --text:#1f2d25; --muted:#6b7a70;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:"Segoe UI","Microsoft JhengHei",system-ui,sans-serif;
+    background:#3a4a40; color:var(--text);
+    display:flex; justify-content:center; align-items:flex-start;
+    min-height:100vh; padding:24px 8px;
+  }
+  .phone{
+    width:390px; max-width:100%; height:820px; background:var(--bg);
+    border-radius:28px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 12px 40px rgba(0,0,0,.45); border:6px solid #222;
+  }
+  /* ---- top bar ---- */
+  .topbar{
+    background:var(--green-dark); color:#fff; padding:12px 16px;
+    display:flex; align-items:center; gap:10px; flex-shrink:0;
+  }
+  .topbar h1{font-size:17px; font-weight:600; flex:1;}
+  .sync-chip{
+    font-size:11px; background:rgba(255,255,255,.15); padding:3px 9px;
+    border-radius:999px; display:flex; align-items:center; gap:5px;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);}
+  .dot.ok{background:#74c69d;}
+  /* ---- screens ---- */
+  .screens{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;}
+  .screen{display:none; padding:14px 14px 90px;}
+  .screen.active{display:block;}
+  /* ---- bottom nav ---- */
+  .nav{
+    flex-shrink:0; display:flex; background:#fff; border-top:1px solid var(--line);
+  }
+  .nav button{
+    flex:1; border:none; background:none; padding:9px 2px 10px; cursor:pointer;
+    font-size:11px; color:var(--muted); display:flex; flex-direction:column;
+    align-items:center; gap:3px; font-family:inherit;
+  }
+  .nav button .ic{font-size:21px; line-height:1;}
+  .nav button.active{color:var(--green); font-weight:700;}
+  /* ---- generic ---- */
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:14px; margin-bottom:12px;
+  }
+  .card h3{font-size:14px; margin-bottom:10px; color:var(--green-dark);}
+  .sec-note{font-size:11.5px; color:var(--muted); margin:-4px 0 10px;}
+  label.f{display:block; font-size:12.5px; color:var(--muted); margin:10px 0 4px;}
+  label.f:first-of-type{margin-top:0;}
+  .req{color:var(--red);}
+  input[type=text],input[type=number],select,textarea{
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px;
+    font-size:15px; font-family:inherit; background:#fbfcfb; color:var(--text);
+  }
+  textarea{resize:none;}
+  .row{display:flex; gap:8px;}
+  .row > *{flex:1;}
+  .btn{
+    display:block; width:100%; padding:13px; border:none; border-radius:12px;
+    background:var(--green); color:#fff; font-size:16px; font-weight:700;
+    cursor:pointer; font-family:inherit; margin-top:4px;
+  }
+  .btn.sub{background:#eef3ef; color:var(--green-dark); font-weight:600; font-size:14px; padding:10px;}
+  .btn.small{width:auto; padding:9px 14px; font-size:13px; margin-top:0; flex:none;}
+  .auto-chip{
+    display:inline-block; font-size:11px; background:var(--green-light);
+    color:var(--green-dark); border-radius:6px; padding:1px 7px; margin-left:6px;
+  }
+  /* toggle */
+  .tgl-row{display:flex; align-items:center; justify-content:space-between; padding:9px 0;}
+  .tgl-row + .tgl-row{border-top:1px dashed var(--line);}
+  .tgl-row span{font-size:14.5px;}
+  .tgl{
+    width:48px; height:27px; border-radius:999px; background:#cfd8d1; position:relative;
+    cursor:pointer; transition:.15s; flex-shrink:0; border:none;
+  }
+  .tgl::after{
+    content:""; position:absolute; top:3px; left:3px; width:21px; height:21px;
+    border-radius:50%; background:#fff; transition:.15s; box-shadow:0 1px 3px rgba(0,0,0,.3);
+  }
+  .tgl.on{background:var(--green);}
+  .tgl.on::after{left:24px;}
+  /* segmented */
+  .seg{display:flex; background:#eef3ef; border-radius:10px; padding:3px; gap:3px;}
+  .seg button{
+    flex:1; border:none; background:none; padding:8px 4px; border-radius:8px;
+    font-size:13px; cursor:pointer; font-family:inherit; color:var(--muted);
+  }
+  .seg button.on{background:#fff; color:var(--green-dark); font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,.12);}
+  /* device list */
+  .dev{
+    background:#fff; border:1px solid var(--line); border-radius:14px; padding:12px 14px;
+    margin-bottom:10px; display:flex; align-items:center; gap:12px; cursor:pointer;
+  }
+  .dev .icon{
+    width:42px;height:42px;border-radius:10px;background:var(--green-light);
+    display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0;
+  }
+  .dev .info{flex:1; min-width:0;}
+  .dev .info b{font-size:15px; display:block;}
+  .dev .info small{font-size:11.5px; color:var(--muted); display:block; margin-top:2px;}
+  .badge{font-size:10.5px; padding:2px 8px; border-radius:999px; font-weight:700; flex-shrink:0;}
+  .badge.ok{background:var(--green-light); color:var(--green-dark);}
+  .badge.warn{background:#fdebd0; color:var(--amber);}
+  .badge.bad{background:#fadbd8; color:var(--red);}
+  /* compare table */
+  .cmp{width:100%; border-collapse:collapse; font-size:12.5px;}
+  .cmp th,.cmp td{padding:6px 6px; text-align:left; border-bottom:1px solid var(--line);}
+  .cmp th{color:var(--muted); font-weight:600; font-size:11.5px;}
+  .cmp td:first-child{color:var(--muted); width:34%;}
+  .last-card{background:#f0f7f2; border-color:#bcd9c6;}
+  /* photo grid */
+  .photos{display:flex; gap:8px; flex-wrap:wrap;}
+  .photos .ph,.photos .add{
+    width:74px;height:74px;border-radius:10px;display:flex;align-items:center;
+    justify-content:center;font-size:26px;
+  }
+  .photos .ph{background:#dbe5dd; position:relative;}
+  .photos .ph::after{
+    content:"✕"; position:absolute; top:-6px; right:-6px; width:20px; height:20px;
+    background:var(--red); color:#fff; border-radius:50%; font-size:11px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .photos .add{border:2px dashed #b0c2b5; color:var(--green); cursor:pointer; background:none;}
+  /* queue */
+  .q-item{display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); font-size:13.5px;}
+  .q-item:last-child{border-bottom:none;}
+  .q-item small{color:var(--muted); display:block; font-size:11px;}
+  .q-item .st{margin-left:auto; font-size:11.5px; font-weight:700; flex-shrink:0;}
+  .st.wait{color:var(--amber);} .st.done{color:var(--green);} .st.up{color:var(--blue);}
+  /* custom field builder */
+  .cf{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13.5px;}
+  .cf:last-child{border:none;}
+  .cf .type{font-size:11px; background:#eef3ef; color:var(--muted); padding:2px 8px; border-radius:6px; margin-left:auto; flex-shrink:0;}
+  /* scanner */
+  .scanbox{
+    height:210px; background:#111; border-radius:14px; margin-bottom:12px;
+    display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;
+  }
+  .scanbox .frame{
+    width:150px;height:150px;border:3px solid #74c69d;border-radius:14px; position:relative;
+  }
+  .scanbox .frame::after{
+    content:""; position:absolute; left:8px; right:8px; top:50%; height:2px;
+    background:#74c69d; box-shadow:0 0 12px #74c69d; animation:scan 1.8s ease-in-out infinite;
+  }
+  @keyframes scan{0%,100%{transform:translateY(-55px);}50%{transform:translateY(55px);}}
+  .scanbox p{position:absolute; bottom:10px; color:#aaa; font-size:12px; width:100%; text-align:center;}
+  .divider{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; margin:14px 0;}
+  .divider::before,.divider::after{content:""; flex:1; height:1px; background:var(--line);}
+  .hint{
+    font-size:12px; color:var(--green-dark); background:var(--green-light);
+    border-radius:10px; padding:9px 12px; margin-bottom:12px; line-height:1.5;
+  }
+  h2.pg{font-size:18px; margin:2px 2px 12px; color:var(--green-dark);}
+  /* map */
+  #devmap{
+    height:220px; border-radius:14px; border:1px solid var(--line);
+    margin-bottom:6px; z-index:0;
+  }
+  .map-legend{
+    display:flex; gap:14px; font-size:11px; color:var(--muted);
+    margin:0 4px 12px;
+  }
+  .map-legend i{
+    display:inline-block; width:10px; height:10px; border-radius:50%;
+    margin-right:4px; vertical-align:-1px;
+  }
+  .dev-popup b{font-size:13px;}
+  .dev-popup small{color:#6b7a70; font-size:11px;}
+  .locate-btn{
+    width:34px; height:34px; border-radius:8px; border:2px solid rgba(0,0,0,.2);
+    background:#fff; font-size:17px; cursor:pointer; line-height:1;
+  }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <div class="topbar">
+    <h1>🦌 CATPatrol 巡檢</h1>
+    <div class="sync-chip"><span class="dot"></span>待上傳 3 筆</div>
+  </div>
+
+  <div class="screens">
+
+  <!-- ═══════════ 畫面 1：首頁 / 設備清單 ═══════════ -->
+  <div class="screen active" id="scr-home">
+    <h2 class="pg">設備清單</h2>
+    <label class="f">目前專案</label>
+    <select style="margin-bottom:12px;">
+      <option>大雪山黑熊監測計畫</option>
+      <option>石虎廊道調查 2026</option>
+      <option>＋ 建立新專案…</option>
+    </select>
+
+    <div id="devmap"></div>
+    <div class="map-legend">
+      <span><i style="background:#2d6a4f;"></i>正常</span>
+      <span><i style="background:#e07a00;"></i>電量低/待巡檢</span>
+      <span><i style="background:#c0392b;"></i>異常</span>
+    </div>
+
+    <div class="dev" onclick="go('scr-patrol')">
+      <div class="icon">📷</div>
+      <div class="info"><b>CAM-A01</b><small>上次巡檢 2026-06-18 · 電量 85% · 王小明</small></div>
+      <span class="badge ok">正常</span>
+    </div>
+    <div class="dev" onclick="go('scr-patrol')">
+      <div class="icon">📷</div>
+      <div class="info"><b>CAM-A02</b><small>上次巡檢 2026-06-18 · 電量 32% · 王小明</small></div>
+      <span class="badge warn">電量低</span>
+    </div>
+    <div class="dev" onclick="go('scr-patrol')">
+      <div class="icon">📷</div>
+      <div class="info"><b>CAM-B07</b><small>上次巡檢 2026-05-02 · 停止運作 · 林阿花</small></div>
+      <span class="badge bad">異常</span>
+    </div>
+    <div class="dev" onclick="go('scr-patrol')">
+      <div class="icon">📷</div>
+      <div class="info"><b>CAM-B09</b><small>超過 60 天未巡檢</small></div>
+      <span class="badge warn">待巡檢</span>
+    </div>
+
+    <button class="btn" onclick="go('scr-add')" style="margin-top:8px;">＋ 新增設備</button>
+  </div>
+
+  <!-- ═══════════ 畫面 2：新增設備 ═══════════ -->
+  <div class="screen" id="scr-add">
+    <h2 class="pg">新增設備</h2>
+
+    <div class="card">
+      <h3>基本資料</h3>
+      <label class="f">專案 <span class="req">*</span></label>
+      <select><option>大雪山黑熊監測計畫</option><option>石虎廊道調查 2026</option></select>
+
+      <label class="f">設備編號 <span class="req">*</span></label>
+      <div class="row">
+        <input type="text" placeholder="掃描或手動輸入" value="CAM-C12">
+        <button class="btn small">📷 掃碼綁定</button>
+      </div>
+      <p class="sec-note" style="margin-top:6px;">掃描設備上現有的 QR code / 條碼，即綁定為此設備。</p>
+
+      <label class="f">巡檢人員 <span class="auto-chip">自動帶入</span></label>
+      <input type="text" value="王小明" readonly style="background:#f0f2f0;">
+
+      <label class="f">建立時間 <span class="auto-chip">自動帶入</span></label>
+      <input type="text" value="2026-07-16 09:42" readonly style="background:#f0f2f0;">
+    </div>
+
+    <div class="card">
+      <h3>位置（首次設定）</h3>
+      <div class="row">
+        <div><label class="f">經度</label><input type="text" value="121.01234"></div>
+        <div><label class="f">緯度</label><input type="text" value="24.28765"></div>
+      </div>
+      <button class="btn sub" style="margin-top:10px;">📍 取得目前 GPS 位置（±5m）</button>
+    </div>
+
+    <div class="card">
+      <h3>耗材</h3>
+      <label class="f">記憶卡編號 <span class="req">*</span></label>
+      <input type="text" placeholder="例：SD-032">
+      <div class="row">
+        <div>
+          <label class="f">電池類型</label>
+          <select><option>鹼性</option><option>鎳氫</option><option>鋰電</option><option>外接電源</option></select>
+        </div>
+        <div>
+          <label class="f">電量 %</label>
+          <input type="number" value="100">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>設備設定（首次設定）</h3>
+      <p class="sec-note">之後巡檢時沿用，有變動才需修改。</p>
+      <label class="f">拍攝模式</label>
+      <div class="seg">
+        <button class="on">照片</button><button>影片</button><button>照片+影片</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" value="3"></div>
+        <div><label class="f" style="margin-top:0;">感度</label><select><option>高</option><option selected>中</option><option>低</option></select></div>
+        <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" value="30"></div>
+      </div>
+      <label class="f">設定備註</label>
+      <input type="text" placeholder="例：夜間紅外燈設為低功率">
+    </div>
+
+    <div class="card">
+      <h3>架設照片</h3>
+      <div class="photos">
+        <div class="ph">🖼️</div>
+        <button class="add">＋</button>
+      </div>
+      <p class="sec-note" style="margin:8px 0 0;">建議拍：設備正面、架設角度、周遭環境。</p>
+    </div>
+
+    <button class="btn" onclick="go('scr-home')">儲存設備（離線暫存）</button>
+  </div>
+
+  <!-- ═══════════ 畫面 3：巡檢 ═══════════ -->
+  <div class="screen" id="scr-patrol">
+    <h2 class="pg">巡檢紀錄</h2>
+
+    <button class="btn sub" id="scan-btn" style="margin-bottom:12px;"
+      onclick="const s=document.getElementById('scanbox');const on=s.style.display!=='none';s.style.display=on?'none':'flex';this.textContent=on?'📷 掃描 QR code':'✕ 關閉掃描';">📷 掃描 QR code</button>
+    <div class="scanbox" id="scanbox" style="display:none;">
+      <div class="frame"></div>
+      <p>將 QR code 對準框內自動辨識</p>
+    </div>
+    <div class="divider">或手動選擇</div>
+    <div class="row" style="margin-bottom:14px;">
+      <select><option>CAM-A01</option><option>CAM-A02</option><option>CAM-B07</option></select>
+      <button class="btn small">帶出</button>
+    </div>
+
+    <div class="card last-card">
+      <h3>📋 上次巡檢狀態（2026-06-18 · 王小明）</h3>
+      <table class="cmp">
+        <tr><td>運作狀態</td><td>✅ 持續運作</td></tr>
+        <tr><td>記憶卡</td><td>SD-014（已更換）</td></tr>
+        <tr><td>電池</td><td>AA 鹼性 ×8 · 85%</td></tr>
+        <tr><td>設定</td><td>照片 · 連拍3 · 感度中 · 間隔30s</td></tr>
+        <tr><td>座標</td><td>121.01234, 24.28765</td></tr>
+        <tr><td>備註</td><td>鏡頭前芒草稍長，已清除</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>本次巡檢 <span class="auto-chip">2026-07-16 09:45 · 王小明</span></h3>
+
+      <div class="tgl-row"><span>設備持續運作中</span><button class="tgl on" onclick="this.classList.toggle('on')"></button></div>
+      <div class="tgl-row"><span>更換記憶卡</span><button class="tgl on" onclick="this.classList.toggle('on'); document.getElementById('sd-new').style.display=this.classList.contains('on')?'block':'none';"></button></div>
+      <div id="sd-new" style="padding:2px 0 8px;">
+        <label class="f" style="margin-top:0;">新記憶卡編號 <span class="req">*</span></label>
+        <input type="text" placeholder="例：SD-021" value="SD-021">
+        <p class="sec-note" style="margin-top:6px;">取回卡：SD-014（自動記錄）</p>
+      </div>
+      <div class="tgl-row"><span>更換電池</span><button class="tgl" onclick="this.classList.toggle('on'); document.getElementById('bat-new').style.display=this.classList.contains('on')?'block':'none';"></button></div>
+      <div id="bat-new" style="display:none; padding:2px 0 8px;">
+        <label class="f" style="margin-top:0;">新電池類型</label>
+        <select><option>鹼性</option><option>鎳氫</option><option>鋰電</option><option>外接電源</option></select>
+      </div>
+
+      <label class="f">目前電量 %</label>
+      <input type="number" value="78">
+
+      <div class="tgl-row" style="margin-top:6px;"><span>設定有變動</span><button class="tgl" onclick="this.classList.toggle('on')"></button></div>
+      <div class="tgl-row"><span>位置有變動（重新定位）</span><button class="tgl" onclick="this.classList.toggle('on')"></button></div>
+    </div>
+
+    <div class="card">
+      <h3>專案自訂欄位</h3>
+      <div class="tgl-row"><span>誘餌已補充</span><button class="tgl on" onclick="this.classList.toggle('on')"></button></div>
+      <label class="f">植被遮蔽程度</label>
+      <select><option>無遮蔽</option><option selected>輕微</option><option>需清理</option></select>
+    </div>
+
+    <div class="card">
+      <h3>現場照片</h3>
+      <div class="photos">
+        <div class="ph">🖼️</div><div class="ph">🖼️</div>
+        <button class="add">＋</button>
+      </div>
+      <p class="sec-note" style="margin:8px 0 0;">上傳時自動壓縮，存入雲端「專案／設備／日期」資料夾。</p>
+    </div>
+
+    <div class="card">
+      <h3>備註</h3>
+      <textarea rows="2" placeholder="其他觀察事項…">獸徑有新鮮足跡，疑似山羌。</textarea>
+    </div>
+
+    <button class="btn" onclick="go('scr-sync')">完成巡檢（離線暫存 → 佇列）</button>
+  </div>
+
+  <!-- ═══════════ 畫面 4：同步與設定 ═══════════ -->
+  <div class="screen" id="scr-sync">
+    <h2 class="pg">同步與設定</h2>
+
+    <div class="hint">📡 目前離線 — 紀錄已安全存在手機，連上網路後依下方規則上傳。</div>
+
+    <div class="card">
+      <h3>上傳佇列</h3>
+      <div class="q-item">📝 <div>CAM-A01 巡檢紀錄<small>2026-07-16 09:45 · 含 2 張照片</small></div><span class="st wait">待上傳</span></div>
+      <div class="q-item">📷 <div>CAM-C12 新增設備<small>2026-07-16 09:42 · 含 1 張照片</small></div><span class="st wait">待上傳</span></div>
+      <div class="q-item">📝 <div>CAM-A02 巡檢紀錄<small>2026-07-15 14:20</small></div><span class="st up">上傳中 60%</span></div>
+      <div class="q-item">📝 <div>CAM-B07 巡檢紀錄<small>2026-07-15 11:03</small></div><span class="st done">✓ 已上傳</span></div>
+      <button class="btn sub" style="margin-top:10px;">立即全部上傳</button>
+    </div>
+
+    <div class="card">
+      <h3>上傳規則</h3>
+      <div class="seg">
+        <button>任何網路</button><button class="on">僅 WiFi</button><button>手動</button>
+      </div>
+      <p class="sec-note" style="margin:10px 0 0;">「僅 WiFi」：行動網路下不上傳，回到營地/宿舍連 WiFi 自動送出。</p>
+    </div>
+
+    <div class="card">
+      <h3>巡檢人員</h3>
+      <div class="row">
+        <input type="text" value="王小明">
+        <button class="btn small">變更</button>
+      </div>
+      <p class="sec-note" style="margin-top:8px;">存於本機，所有紀錄自動帶入此名字。</p>
+    </div>
+
+    <div class="card">
+      <h3>專案自訂欄位（大雪山黑熊監測計畫）</h3>
+      <div class="cf">☑️ 誘餌已補充 <span class="type">勾選</span></div>
+      <div class="cf">🌿 植被遮蔽程度 <span class="type">單選：無/輕微/需清理</span></div>
+      <button class="btn sub" style="margin-top:10px;">＋ 新增自訂欄位</button>
+    </div>
+  </div>
+
+  </div><!-- /screens -->
+
+  <div class="nav">
+    <button class="active" data-s="scr-home" onclick="go('scr-home',this)"><span class="ic">🏠</span>設備</button>
+    <button data-s="scr-add" onclick="go('scr-add',this)"><span class="ic">➕</span>新增</button>
+    <button data-s="scr-patrol" onclick="go('scr-patrol',this)"><span class="ic">✅</span>巡檢</button>
+    <button data-s="scr-sync" onclick="go('scr-sync',this)"><span class="ic">☁️</span>同步</button>
+  </div>
+</div>
+
+<script>
+function go(id, btn){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.s===id));
+  document.querySelector('.screens').scrollTop = 0;
+  if(id==='scr-home' && window._map) setTimeout(()=>window._map.invalidateSize(), 50);
+}
+
+// ---- 設備地圖（OSM） ----
+const devices = [
+  {id:'CAM-A01', lat:24.28765, lng:121.01234, color:'#2d6a4f', note:'2026-06-18 · 電量 85% · 正常'},
+  {id:'CAM-A02', lat:24.29210, lng:121.01880, color:'#e07a00', note:'2026-06-18 · 電量 32% · 電量低'},
+  {id:'CAM-B07', lat:24.28110, lng:121.02510, color:'#c0392b', note:'2026-05-02 · 停止運作 · 異常'},
+  {id:'CAM-B09', lat:24.27620, lng:121.01050, color:'#e07a00', note:'超過 60 天未巡檢'},
+];
+const map = L.map('devmap', {zoomControl:true, attributionControl:true});
+window._map = map;
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap'
+}).addTo(map);
+const group = [];
+devices.forEach(d=>{
+  const m = L.circleMarker([d.lat, d.lng], {
+    radius:9, color:'#fff', weight:2, fillColor:d.color, fillOpacity:1
+  }).addTo(map);
+  m.bindPopup(`<div class="dev-popup"><b>${d.id}</b><br><small>${d.note}</small></div>`);
+  group.push(m);
+});
+map.fitBounds(L.featureGroup(group).getBounds().pad(0.25));
+
+// 定位自身位置按鈕
+const LocateCtl = L.Control.extend({
+  options:{position:'topright'},
+  onAdd(){
+    const b = L.DomUtil.create('button','locate-btn');
+    b.innerHTML = '📍';
+    b.title = '顯示我的位置';
+    L.DomEvent.on(b,'click',e=>{
+      L.DomEvent.stop(e);
+      const show = (lat,lng,acc)=>{
+        if(window._me){ map.removeLayer(window._me); map.removeLayer(window._meAcc); }
+        window._me = L.circleMarker([lat,lng],{radius:8,color:'#fff',weight:2,fillColor:'#1d6fa5',fillOpacity:1})
+          .addTo(map).bindPopup('📍 我的位置').openPopup();
+        window._meAcc = L.circle([lat,lng],{radius:acc,color:'#1d6fa5',weight:1,fillOpacity:.12}).addTo(map);
+        map.setView([lat,lng],15);
+      };
+      if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(
+          p=>show(p.coords.latitude,p.coords.longitude,p.coords.accuracy),
+          ()=>show(24.2845,121.0165,40) // 原型示範用：無法定位時顯示模擬位置
+        );
+      }else show(24.2845,121.0165,40);
+    });
+    return b;
+  }
+});
+map.addControl(new LocateCtl());
+</script>
+</body>
+</html>

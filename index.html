@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b4332">
+<title>CATPatrol 巡檢</title>
+<link rel="stylesheet" href="lib/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="lib/leaflet/leaflet.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>🐾 CATPatrol 巡檢</h1>
+  <div class="sync-chip" id="sync-chip"><span class="dot"></span>待上傳 3 筆</div>
+</header>
+
+<main class="screens" id="screens">
+
+  <!-- ═══════════ 設備清單 ═══════════ -->
+  <section class="screen active" id="scr-home">
+    <h2 class="pg">設備清單</h2>
+    <label class="f">目前專案</label>
+    <select id="project-select" style="margin-bottom:12px;">
+      <option>大雪山黑熊監測計畫</option>
+      <option>石虎廊道調查 2026</option>
+      <option>＋ 建立新專案…</option>
+    </select>
+
+    <div id="devmap"></div>
+    <div class="map-legend">
+      <span><i style="background:#2d6a4f;"></i>正常</span>
+      <span><i style="background:#e07a00;"></i>電量低/待巡檢</span>
+      <span><i style="background:#c0392b;"></i>異常</span>
+    </div>
+
+    <div id="device-list">
+      <div class="dev" data-go="scr-patrol">
+        <div class="icon">📷</div>
+        <div class="info"><b>CAM-A01</b><small>上次巡檢 2026-06-18 · 電量 85% · 王小明</small></div>
+        <span class="badge ok">正常</span>
+      </div>
+      <div class="dev" data-go="scr-patrol">
+        <div class="icon">📷</div>
+        <div class="info"><b>CAM-A02</b><small>上次巡檢 2026-06-18 · 電量 32% · 王小明</small></div>
+        <span class="badge warn">電量低</span>
+      </div>
+      <div class="dev" data-go="scr-patrol">
+        <div class="icon">📷</div>
+        <div class="info"><b>CAM-B07</b><small>上次巡檢 2026-05-02 · 停止運作 · 林阿花</small></div>
+        <span class="badge bad">異常</span>
+      </div>
+      <div class="dev" data-go="scr-patrol">
+        <div class="icon">📷</div>
+        <div class="info"><b>CAM-B09</b><small>超過 60 天未巡檢</small></div>
+        <span class="badge warn">待巡檢</span>
+      </div>
+    </div>
+
+    <button class="btn" data-go="scr-add" style="margin-top:8px;">＋ 新增設備</button>
+  </section>
+
+  <!-- ═══════════ 新增設備 ═══════════ -->
+  <section class="screen" id="scr-add">
+    <h2 class="pg">新增設備</h2>
+
+    <div class="card">
+      <h3>基本資料</h3>
+      <label class="f">專案 <span class="req">*</span></label>
+      <select><option>大雪山黑熊監測計畫</option><option>石虎廊道調查 2026</option></select>
+
+      <label class="f">設備編號 <span class="req">*</span></label>
+      <div class="row">
+        <input type="text" id="add-device-id" placeholder="掃描或手動輸入">
+        <button class="btn small" data-toggle-scan="#add-scanbox">📷 掃碼綁定</button>
+      </div>
+      <div class="scanbox" id="add-scanbox" hidden>
+        <div class="frame"></div>
+        <p>將設備上的 QR code 對準框內</p>
+      </div>
+      <p class="sec-note" style="margin-top:6px;">掃描設備上現有的 QR code / 條碼，即綁定為此設備。</p>
+
+      <label class="f">巡檢人員 <span class="auto-chip">自動帶入</span></label>
+      <input type="text" id="add-inspector" value="王小明" readonly>
+
+      <label class="f">建立時間 <span class="auto-chip">自動帶入</span></label>
+      <input type="text" id="add-created-at" value="2026-07-16 09:42" readonly>
+    </div>
+
+    <div class="card">
+      <h3>位置（首次設定）</h3>
+      <div class="row">
+        <div><label class="f">經度</label><input type="text" id="add-lng" value="121.01234"></div>
+        <div><label class="f">緯度</label><input type="text" id="add-lat" value="24.28765"></div>
+      </div>
+      <button class="btn sub" style="margin-top:10px;">📍 取得目前 GPS 位置（±5m）</button>
+    </div>
+
+    <div class="card">
+      <h3>耗材</h3>
+      <label class="f">記憶卡編號 <span class="req">*</span></label>
+      <input type="text" placeholder="例：SD-032">
+      <div class="row">
+        <div>
+          <label class="f">電池類型</label>
+          <select><option>鹼性</option><option>鎳氫</option><option>鋰電</option><option>外接電源</option></select>
+        </div>
+        <div>
+          <label class="f">電量 %</label>
+          <input type="number" value="100" min="0" max="100">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>設備設定（首次設定）</h3>
+      <p class="sec-note">之後巡檢時沿用，有變動才需修改。</p>
+      <label class="f">拍攝模式</label>
+      <div class="seg" data-seg>
+        <button type="button" class="on">照片</button><button type="button">影片</button><button type="button">照片+影片</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" value="3" min="1"></div>
+        <div><label class="f" style="margin-top:0;">感度</label><select><option>高</option><option selected>中</option><option>低</option></select></div>
+        <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" value="30" min="0"></div>
+      </div>
+      <label class="f">設定備註</label>
+      <input type="text" placeholder="例：夜間紅外燈設為低功率">
+    </div>
+
+    <div class="card">
+      <h3>架設照片</h3>
+      <div class="photos">
+        <div class="ph">🖼️</div>
+        <button class="add" type="button">＋</button>
+      </div>
+      <p class="sec-note" style="margin:8px 0 0;">建議拍：設備正面、架設角度、周遭環境。</p>
+    </div>
+
+    <button class="btn" data-go="scr-home">儲存設備（離線暫存）</button>
+  </section>
+
+  <!-- ═══════════ 巡檢 ═══════════ -->
+  <section class="screen" id="scr-patrol">
+    <h2 class="pg">巡檢紀錄</h2>
+
+    <button class="btn sub" data-toggle-scan="#patrol-scanbox"
+            data-label-on="✕ 關閉掃描" data-label-off="📷 掃描 QR code"
+            style="margin-bottom:12px;">📷 掃描 QR code</button>
+    <div class="scanbox" id="patrol-scanbox" hidden>
+      <div class="frame"></div>
+      <p>將 QR code 對準框內自動辨識</p>
+    </div>
+
+    <div class="divider">或手動選擇</div>
+    <div class="row" style="margin-bottom:14px;">
+      <select><option>CAM-A01</option><option>CAM-A02</option><option>CAM-B07</option></select>
+      <button class="btn small">帶出</button>
+    </div>
+
+    <div class="card last-card">
+      <h3>📋 上次巡檢狀態（2026-06-18 · 王小明）</h3>
+      <table class="cmp">
+        <tr><td>運作狀態</td><td>✅ 持續運作</td></tr>
+        <tr><td>記憶卡</td><td>SD-014（已更換）</td></tr>
+        <tr><td>電池</td><td>鹼性 · 85%</td></tr>
+        <tr><td>設定</td><td>照片 · 連拍3 · 感度中 · 間隔30s</td></tr>
+        <tr><td>座標</td><td>121.01234, 24.28765</td></tr>
+        <tr><td>備註</td><td>鏡頭前芒草稍長，已清除</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>本次巡檢 <span class="auto-chip" id="patrol-meta">2026-07-16 09:45 · 王小明</span></h3>
+
+      <div class="tgl-row">
+        <span>設備持續運作中</span>
+        <button class="tgl on" type="button" data-tgl></button>
+      </div>
+
+      <div class="tgl-row">
+        <span>更換記憶卡</span>
+        <button class="tgl on" type="button" data-tgl data-reveal="#sd-new"></button>
+      </div>
+      <div id="sd-new" class="reveal">
+        <label class="f" style="margin-top:0;">新記憶卡編號 <span class="req">*</span></label>
+        <input type="text" placeholder="例：SD-021" value="SD-021">
+        <p class="sec-note" style="margin-top:6px;">取回卡：SD-014（自動記錄）</p>
+      </div>
+
+      <div class="tgl-row">
+        <span>更換電池</span>
+        <button class="tgl" type="button" data-tgl data-reveal="#bat-new"></button>
+      </div>
+      <div id="bat-new" class="reveal" hidden>
+        <label class="f" style="margin-top:0;">新電池類型</label>
+        <select><option>鹼性</option><option>鎳氫</option><option>鋰電</option><option>外接電源</option></select>
+      </div>
+
+      <label class="f">目前電量 %</label>
+      <input type="number" value="78" min="0" max="100">
+
+      <div class="tgl-row" style="margin-top:6px;">
+        <span>設定有變動</span>
+        <button class="tgl" type="button" data-tgl data-reveal="#cfg-new"></button>
+      </div>
+      <div id="cfg-new" class="reveal" hidden>
+        <label class="f" style="margin-top:0;">拍攝模式</label>
+        <div class="seg" data-seg>
+          <button type="button" class="on">照片</button><button type="button">影片</button><button type="button">照片+影片</button>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" value="3" min="1"></div>
+          <div><label class="f" style="margin-top:0;">感度</label><select><option>高</option><option selected>中</option><option>低</option></select></div>
+          <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" value="30" min="0"></div>
+        </div>
+      </div>
+
+      <div class="tgl-row">
+        <span>位置有變動（重新定位）</span>
+        <button class="tgl" type="button" data-tgl data-reveal="#loc-new"></button>
+      </div>
+      <div id="loc-new" class="reveal" hidden>
+        <div class="row">
+          <div><label class="f" style="margin-top:0;">經度</label><input type="text" placeholder="121.01234"></div>
+          <div><label class="f" style="margin-top:0;">緯度</label><input type="text" placeholder="24.28765"></div>
+        </div>
+        <button class="btn sub" style="margin-top:10px;">📍 取得目前 GPS 位置</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>專案自訂欄位</h3>
+      <div class="tgl-row"><span>誘餌已補充</span><button class="tgl on" type="button" data-tgl></button></div>
+      <label class="f">植被遮蔽程度</label>
+      <select><option>無遮蔽</option><option selected>輕微</option><option>需清理</option></select>
+    </div>
+
+    <div class="card">
+      <h3>現場照片</h3>
+      <div class="photos">
+        <div class="ph">🖼️</div><div class="ph">🖼️</div>
+        <button class="add" type="button">＋</button>
+      </div>
+      <p class="sec-note" style="margin:8px 0 0;">上傳時自動壓縮，存入雲端「專案／設備／日期」資料夾。</p>
+    </div>
+
+    <div class="card">
+      <h3>備註</h3>
+      <textarea rows="2" placeholder="其他觀察事項…"></textarea>
+    </div>
+
+    <button class="btn" data-go="scr-sync">完成巡檢（離線暫存 → 佇列）</button>
+  </section>
+
+  <!-- ═══════════ 同步與設定 ═══════════ -->
+  <section class="screen" id="scr-sync">
+    <h2 class="pg">同步與設定</h2>
+
+    <div class="hint" id="net-hint">📡 目前離線 — 紀錄已安全存在手機，連上網路後依下方規則上傳。</div>
+
+    <div class="card">
+      <h3>上傳佇列</h3>
+      <div class="q-item">📝 <div>CAM-A01 巡檢紀錄<small>2026-07-16 09:45 · 含 2 張照片</small></div><span class="st wait">待上傳</span></div>
+      <div class="q-item">📷 <div>CAM-C12 新增設備<small>2026-07-16 09:42 · 含 1 張照片</small></div><span class="st wait">待上傳</span></div>
+      <div class="q-item">📝 <div>CAM-A02 巡檢紀錄<small>2026-07-15 14:20</small></div><span class="st up">上傳中 60%</span></div>
+      <div class="q-item">📝 <div>CAM-B07 巡檢紀錄<small>2026-07-15 11:03</small></div><span class="st done">✓ 已上傳</span></div>
+      <button class="btn sub" style="margin-top:10px;">立即全部上傳</button>
+    </div>
+
+    <div class="card">
+      <h3>上傳規則</h3>
+      <div class="seg" data-seg>
+        <button type="button">任何網路</button><button type="button" class="on">僅 WiFi</button><button type="button">手動</button>
+      </div>
+      <p class="sec-note" style="margin:10px 0 0;">「僅 WiFi」：行動網路下不上傳，回到營地/宿舍連 WiFi 自動送出。</p>
+    </div>
+
+    <div class="card">
+      <h3>巡檢人員</h3>
+      <div class="row">
+        <input type="text" value="王小明">
+        <button class="btn small">變更</button>
+      </div>
+      <p class="sec-note" style="margin-top:8px;">存於本機，所有紀錄自動帶入此名字。</p>
+    </div>
+
+    <div class="card">
+      <h3>專案自訂欄位（大雪山黑熊監測計畫）</h3>
+      <div class="cf">☑️ 誘餌已補充 <span class="type">勾選</span></div>
+      <div class="cf">🌿 植被遮蔽程度 <span class="type">單選：無/輕微/需清理</span></div>
+      <button class="btn sub" style="margin-top:10px;">＋ 新增自訂欄位</button>
+    </div>
+
+    <div class="card">
+      <h3>雲端 API 網址</h3>
+      <input type="text" placeholder="貼上 Apps Script 部署網址">
+      <label class="f">共享 token</label>
+      <input type="text" placeholder="部署時自訂的 token">
+      <button class="btn sub" style="margin-top:10px;">儲存並測試連線</button>
+    </div>
+  </section>
+
+</main>
+
+<nav class="nav">
+  <button class="active" data-screen="scr-home"><span class="ic">🏠</span>設備</button>
+  <button data-screen="scr-add"><span class="ic">➕</span>新增</button>
+  <button data-screen="scr-patrol"><span class="ic">✅</span>巡檢</button>
+  <button data-screen="scr-sync"><span class="ic">☁️</span>同步</button>
+</nav>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

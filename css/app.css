@@ -135,12 +135,14 @@ textarea{resize:none;}
   display:flex; align-items:center; justify-content:center; font-size:26px;
 }
 .photos .ph{background:#dbe5dd; position:relative;}
-.photos .ph::after{
-  content:"✕"; position:absolute; top:-6px; right:-6px; width:20px; height:20px;
-  background:var(--red); color:#fff; border-radius:50%; font-size:11px;
-  display:flex; align-items:center; justify-content:center;
+.photos .ph img{width:100%; height:100%; object-fit:cover; border-radius:10px; display:block;}
+.ph-del{
+  position:absolute; top:-6px; right:-6px; width:20px; height:20px;
+  background:var(--red); color:#fff; border:none; border-radius:50%; font-size:11px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
 }
 .photos .add{border:2px dashed #b0c2b5; color:var(--green); cursor:pointer; background:none;}
+.photos .ph.busy{background:#eef3ef; color:var(--muted); font-size:22px;}
 
 /* upload queue */
 .q-item{
@@ -168,17 +170,14 @@ textarea{resize:none;}
 
 /* scanner */
 .scanbox{
-  height:210px; background:#111; border-radius:14px; margin:10px 0 2px;
+  min-height:240px; background:#111; border-radius:14px; margin:10px 0 2px;
   display:flex; align-items:center; justify-content:center;
-  position:relative; overflow:hidden;
+  position:relative; overflow:hidden; padding-bottom:26px;
 }
-.scanbox .frame{width:150px; height:150px; border:3px solid #74c69d; border-radius:14px; position:relative;}
-.scanbox .frame::after{
-  content:""; position:absolute; left:8px; right:8px; top:50%; height:2px;
-  background:#74c69d; box-shadow:0 0 12px #74c69d; animation:scan 1.8s ease-in-out infinite;
-}
-@keyframes scan{0%,100%{transform:translateY(-55px);} 50%{transform:translateY(55px);}}
-.scanbox p{position:absolute; bottom:10px; color:#aaa; font-size:12px; width:100%; text-align:center;}
+.scanbox .scanner{width:100%;}
+.scanbox .scanner video{display:block; width:100% !important; height:auto !important;}
+.scanbox p{position:absolute; bottom:8px; color:#aaa; font-size:12px; width:100%; text-align:center; padding:0 10px;}
+.scanbox p.err{color:#f5a29a;}
 
 .divider{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; margin:14px 0;}
 .divider::before,.divider::after{content:""; flex:1; height:1px; background:var(--line);}

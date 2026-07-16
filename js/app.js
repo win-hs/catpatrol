@@ -1,13 +1,19 @@
 import { initMap, renderDevices, resizeMap } from './map.js';
 import * as store from './store.js';
 import * as form from './form.js';
+import * as camera from './camera.js';
+import * as qr from './qr.js';
 
 const $ = id => document.getElementById(id);
 const screens = $('screens');
 
+const addPhotos = camera.photoGrid($('add-photos'));
+const patrolPhotos = camera.photoGrid($('pt-photos'));
+
 /* ═══════════ 導覽 ═══════════ */
 
 export function go(screenId) {
+  closeAllScanners();
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === screenId));
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.screen === screenId));
   screens.scrollTop = 0;
@@ -46,13 +52,73 @@ document.addEventListener('click', e => {
   }
 
   const scanBtn = e.target.closest('[data-toggle-scan]');
-  if (scanBtn) {
-    const box = document.querySelector(scanBtn.dataset.toggleScan);
-    box.hidden = !box.hidden;
-    const { labelOn, labelOff } = scanBtn.dataset;
-    if (labelOn && labelOff) scanBtn.textContent = box.hidden ? labelOff : labelOn;
-  }
+  if (scanBtn) toggleScanner(scanBtn);
 });
+
+/* ═══════════ QR 掃描 ═══════════ */
+
+const setScanLabel = (btn, open) => {
+  const { labelOn, labelOff } = btn.dataset;
+  if (labelOn && labelOff) btn.textContent = open ? labelOn : labelOff;
+};
+
+async function toggleScanner(btn) {
+  const box = document.querySelector(btn.dataset.toggleScan);
+  const opening = box.hidden;
+  box.hidden = !opening;
+  setScanLabel(btn, opening);
+
+  if (!opening) return qr.stopScan();
+
+  const msg = $(btn.dataset.msg);
+  msg.classList.remove('err');
+  await qr.startScan(
+    btn.dataset.scanner,
+    code => handleDecode(btn, code),
+    err => {
+      msg.textContent = `無法開啟相機：${err?.message || err}。可改用下方欄位手動輸入。`;
+      msg.classList.add('err');
+    }
+  );
+}
+
+function closeAllScanners() {
+  qr.stopScan();
+  document.querySelectorAll('[data-toggle-scan]').forEach(btn => {
+    document.querySelector(btn.dataset.toggleScan).hidden = true;
+    setScanLabel(btn, false);
+  });
+}
+
+async function handleDecode(btn, code) {
+  const scanned = code.trim();
+  document.querySelector(btn.dataset.toggleScan).hidden = true;
+  setScanLabel(btn, false);
+  await qr.stopScan();
+
+  if (btn.dataset.scanner === 'add-scanner') {
+    $('add-device-id').value = scanned;
+    return;
+  }
+
+  const device = await store.findDeviceByCode(scanned);
+  if (!device) {
+    if (confirm(`查無設備「${scanned}」，要新增這台設備嗎？`)) {
+      go('scr-add');
+      $('add-device-id').value = scanned;
+    }
+    return;
+  }
+
+  // 掃到其他專案的設備時自動切換專案
+  if (device.projectId !== store.settings.projectId) {
+    store.settings.projectId = device.projectId;
+    await renderProjectSelects();
+    await renderPatrol();
+  }
+  $('patrol-device').value = device.id;
+  await loadPatrolDevice(device.id);
+}
 
 // 以 form 的 submit 取代 dialog 的 close 事件：close 在部分 WebView 不觸發
 function openDialog(dialogId) {
@@ -187,6 +253,8 @@ $('add-save').addEventListener('click', async () => {
     return;
   }
 
+  await addPhotos.ready();
+  const photoIds = addPhotos.ids();
   await store.addDevice({
     id,
     projectId: $('add-project').value,
@@ -203,8 +271,9 @@ $('add-save').addEventListener('click', async () => {
       interval: Number($('add-interval').value),
       note: $('add-config-note').value.trim(),
     },
-  });
+  }, photoIds);
 
+  addPhotos.take();
   ['add-device-id', 'add-sd', 'add-lng', 'add-lat', 'add-config-note'].forEach(k => { $(k).value = ''; });
   $('add-battery-pct').value = 100;
   await updateSyncChip();
@@ -264,6 +333,7 @@ async function loadPatrolDevice(deviceId) {
   $('pt-lng').value = '';
   $('pt-lat').value = '';
 
+  await patrolPhotos.reset();
   patrolDefs = await store.getFieldDefs(device.projectId);
   form.renderCustomFields($('pt-custom'), patrolDefs);
   form.clearErrors($('scr-patrol'));
@@ -319,7 +389,8 @@ $('pt-save').addEventListener('click', async () => {
     customFields: form.collectCustomFields($('pt-custom'), patrolDefs),
   };
 
-  await store.addRecord(record);
+  await patrolPhotos.ready();
+  await store.addRecord(record, patrolPhotos.take());
   await updateSyncChip();
   go('scr-sync');
 });

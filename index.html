@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="lib/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/app.css">
 <script src="lib/leaflet/leaflet.js"></script>
+<script src="lib/html5-qrcode.min.js"></script>
 </head>
 <body>
 
@@ -48,11 +49,12 @@
       <label class="f">設備編號 <span class="req">*</span></label>
       <div class="row">
         <input type="text" id="add-device-id" placeholder="掃描或手動輸入">
-        <button class="btn small" type="button" data-toggle-scan="#add-scanbox">📷 掃碼綁定</button>
+        <button class="btn small" type="button" data-toggle-scan="#add-scanbox"
+                data-scanner="add-scanner" data-msg="add-scan-msg">📷 掃碼綁定</button>
       </div>
       <div class="scanbox" id="add-scanbox" hidden>
-        <div class="frame"></div>
-        <p>將設備上的 QR code 對準框內</p>
+        <div class="scanner" id="add-scanner"></div>
+        <p id="add-scan-msg">將設備上的 QR code 對準框內</p>
       </div>
       <p class="sec-note" style="margin-top:6px;">掃描設備上現有的 QR code / 條碼，即綁定為此設備。</p>
 
@@ -126,11 +128,12 @@
     <h2 class="pg">巡檢紀錄</h2>
 
     <button class="btn sub" type="button" data-toggle-scan="#patrol-scanbox"
+            data-scanner="patrol-scanner" data-msg="patrol-scan-msg"
             data-label-on="✕ 關閉掃描" data-label-off="📷 掃描 QR code"
             style="margin-bottom:12px;">📷 掃描 QR code</button>
     <div class="scanbox" id="patrol-scanbox" hidden>
-      <div class="frame"></div>
-      <p>將 QR code 對準框內自動辨識</p>
+      <div class="scanner" id="patrol-scanner"></div>
+      <p id="patrol-scan-msg">將 QR code 對準框內自動辨識</p>
     </div>
 
     <div class="divider">或手動選擇</div>

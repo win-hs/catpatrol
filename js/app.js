@@ -3,6 +3,8 @@ import * as store from './store.js';
 import * as form from './form.js';
 import * as camera from './camera.js';
 import * as qr from './qr.js';
+import * as sync from './sync.js';
+import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
 const screens = $('screens');
@@ -278,6 +280,7 @@ $('add-save').addEventListener('click', async () => {
   $('add-battery-pct').value = 100;
   await updateSyncChip();
   go('scr-home');
+  syncInBackground();
 });
 
 /* ═══════════ 巡檢 ═══════════ */
@@ -393,27 +396,43 @@ $('pt-save').addEventListener('click', async () => {
   await store.addRecord(record, patrolPhotos.take());
   await updateSyncChip();
   go('scr-sync');
+  syncInBackground();
 });
 
 /* ═══════════ 同步與設定 ═══════════ */
 
-const QUEUE_LABEL = { addRecord: '巡檢紀錄', addDevice: '新增設備', addProject: '建立專案', saveFieldDef: '自訂欄位' };
-const QUEUE_ICON = { addRecord: '📝', addDevice: '📷', addProject: '📁', saveFieldDef: '🏷️' };
+const QUEUE_LABEL = {
+  addRecord: '巡檢紀錄', addDevice: '新增設備', addProject: '建立專案',
+  saveFieldDef: '自訂欄位', deleteFieldDef: '刪除自訂欄位',
+};
+const QUEUE_ICON = {
+  addRecord: '📝', addDevice: '📷', addProject: '📁',
+  saveFieldDef: '🏷️', deleteFieldDef: '🗑️',
+};
 const STATUS_LABEL = { pending: ['待上傳', 'wait'], uploading: ['上傳中', 'up'], done: ['✓ 已上傳', 'done'], error: ['上傳失敗', 'err'] };
 
-async function renderSync() {
-  $('net-hint').textContent = navigator.onLine
-    ? '📶 目前在線 — 依下方規則上傳待送資料。'
-    : '📡 目前離線 — 紀錄已安全存在手機，連上網路後依下方規則上傳。';
+function netHintText() {
+  if (!api.isConfigured()) return '⚙️ 尚未設定雲端 API 網址 — 紀錄會先存在手機，設定後即可上傳。';
+  if (!navigator.onLine) return '📡 目前離線 — 紀錄已安全存在手機，連上網路後依下方規則上傳。';
+  if (store.settings.uploadRule === 'manual') return '📶 目前在線 — 上傳規則為「手動」，請按下方按鈕上傳。';
+  if (store.settings.uploadRule === 'wifi' && !sync.canDetectWifi()) {
+    return '📶 目前在線 — 此裝置無法判斷是否為 WiFi，「僅 WiFi」模式下會視為可上傳。';
+  }
+  return '📶 目前在線 — 依下方規則自動上傳待送資料。';
+}
 
-  const queue = await store.getQueue();
+async function renderSync() {
+  $('net-hint').textContent = netHintText();
+
+  const queue = (await store.getQueue()).sort((a, b) => (a.createdMs ?? 0) - (b.createdMs ?? 0));
   $('queue-list').innerHTML = queue.length
     ? queue.map(q => {
         const [label, cls] = STATUS_LABEL[q.status] || STATUS_LABEL.pending;
         const target = q.payload.deviceId || q.payload.name || q.payload.id || '';
         const photos = q.photoIds?.length ? ` · 含 ${q.photoIds.length} 張照片` : '';
+        const err = q.status === 'error' ? `<br><span class="q-err">${q.error}（第 ${q.retries} 次失敗，將自動重試）</span>` : '';
         return `<div class="q-item">${QUEUE_ICON[q.type] || '📄'}
-          <div>${target} ${QUEUE_LABEL[q.type] || q.type}<small>${q.createdAt}${photos}</small></div>
+          <div>${target} ${QUEUE_LABEL[q.type] || q.type}<small>${q.createdAt}${photos}${err}</small></div>
           <span class="st ${cls}">${label}</span></div>`;
       }).join('')
     : '<p class="sec-note" style="margin:0;">目前沒有待上傳的資料。</p>';
@@ -446,10 +465,26 @@ $('inspector-save').addEventListener('click', () => {
   alert(`已儲存：${name}`);
 });
 
-$('api-save').addEventListener('click', () => {
+$('api-save').addEventListener('click', async e => {
   store.settings.apiUrl = $('api-url').value.trim();
   store.settings.apiToken = $('api-token').value.trim();
-  alert('已儲存 API 設定');
+  if (!store.settings.apiUrl) return alert('請貼上 Apps Script 部署網址');
+
+  const btn = e.target;
+  btn.textContent = '測試連線中…';
+  btn.disabled = true;
+  try {
+    await sync.pull();
+    await renderHome();
+    await renderSync();
+    alert('連線成功，已取得雲端資料。');
+    syncInBackground({ force: true });
+  } catch (err) {
+    alert(`連線失敗：${err.message}`);
+  } finally {
+    btn.textContent = '儲存並測試連線';
+    btn.disabled = false;
+  }
 });
 
 $('fields-list').addEventListener('click', async e => {
@@ -493,8 +528,20 @@ $('dlg-field-type').addEventListener('change', e => {
   $('dlg-field-options-wrap').hidden = e.target.value !== '單選';
 });
 
-$('upload-now').addEventListener('click', () => {
-  alert('上傳功能將於 Phase 5 串接雲端後啟用。');
+$('upload-now').addEventListener('click', async e => {
+  if (!api.isConfigured()) return alert('請先在下方設定雲端 API 網址');
+  const btn = e.target;
+  btn.textContent = '上傳中…';
+  btn.disabled = true;
+  const result = await sync.syncNow({ force: true });
+  btn.textContent = '立即全部上傳';
+  btn.disabled = false;
+
+  await renderSync();
+  await updateSyncChip();
+  if (result.skipped) alert(result.skipped);
+  else if (result.failed) alert(`已上傳 ${result.uploaded} 筆，${result.error}`);
+  else alert(result.uploaded ? `已上傳 ${result.uploaded} 筆` : '沒有待上傳的資料');
 });
 
 /* ═══════════ 專案建立 dialog ═══════════ */
@@ -512,10 +559,22 @@ async function askNewProject() {
 /* ═══════════ 初始化 ═══════════ */
 
 async function updateSyncChip() {
-  const pending = (await store.getQueue()).filter(q => q.status !== 'done').length;
+  const queue = await store.getQueue();
+  const pending = queue.filter(q => q.status !== 'done');
   const chip = $('sync-chip');
-  chip.hidden = pending === 0;
-  $('sync-chip-text').textContent = `待上傳 ${pending} 筆`;
+  chip.hidden = pending.length === 0;
+  chip.querySelector('.dot').classList.toggle('ok', pending.every(q => q.status === 'uploading'));
+  $('sync-chip-text').textContent = pending.some(q => q.status === 'uploading')
+    ? `上傳中 ${pending.length} 筆`
+    : `待上傳 ${pending.length} 筆`;
+}
+
+/** 背景上傳：不擋 UI，完成後刷新畫面 */
+function syncInBackground(options) {
+  sync.syncNow(options).then(async () => {
+    await updateSyncChip();
+    if (document.querySelector('.screen.active').id === 'scr-sync') await renderSync();
+  });
 }
 
 async function askInspector() {
@@ -526,10 +585,18 @@ async function askInspector() {
   refreshAddMeta();
 }
 
-window.addEventListener('online', renderSync);
+window.addEventListener('online', () => { renderSync(); syncInBackground(); });
 window.addEventListener('offline', renderSync);
+
+sync.setOnChange(updateSyncChip);
 
 initMap();
 await renderHome();
 await updateSyncChip();
 if (!store.settings.inspector) askInspector();
+
+// 開啟時先拉雲端最新資料，再送出待上傳佇列
+if (api.isConfigured() && navigator.onLine) {
+  sync.pull().then(renderHome).catch(() => {});
+  syncInBackground();
+}

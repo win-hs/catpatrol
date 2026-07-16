@@ -156,6 +156,7 @@ textarea{resize:none;}
 .st.done{color:var(--green);}
 .st.up{color:var(--blue);}
 .st.err{color:var(--red);}
+.q-err{color:var(--red); font-size:11px;}
 
 /* custom field list */
 .cf{

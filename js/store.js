@@ -99,6 +99,7 @@ async function enqueue(type, payload, photoIds = []) {
     payload,
     photoIds,
     createdAt: stamp(),
+    createdMs: Date.now(), // 上傳需嚴格依序（紀錄要在設備之後），createdAt 只到分鐘不夠精確
     status: 'pending',
     retries: 0,
   });
@@ -118,6 +119,7 @@ export async function saveFieldDef(def) {
 
 export async function deleteFieldDef(id) {
   await db.del('fieldDefs', id);
+  await enqueue('deleteFieldDef', { id });
 }
 
 export async function addDevice(device, photoIds = []) {

@@ -49,6 +49,7 @@ function doPost(e) {
     const handlers = {
       addProject: addProject_,
       saveFieldDef: saveFieldDef_,
+      deleteFieldDef: deleteFieldDef_,
       addDevice: addDevice_,
       addRecord: addRecord_,
     };
@@ -122,6 +123,13 @@ function saveFieldDef_(body) {
   if (idx > 0) sheet.getRange(idx, 1, 1, row.length).setValues([row]);
   else sheet.appendRow(row);
   return { ok: true, id: f.id };
+}
+
+function deleteFieldDef_(body) {
+  const sheet = getSS_().getSheetByName('自訂欄位定義');
+  const idx = findRowIndex_(sheet, body.payload.id, 7);
+  if (idx > 0) sheet.deleteRow(idx);
+  return { ok: true, id: body.payload.id };
 }
 
 function addDevice_(body) {
@@ -343,4 +351,24 @@ function setup() {
   Logger.log('試算表：' + ss.getUrl());
   Logger.log('照片資料夾：' + folder.getUrl());
   return { spreadsheet: ss.getUrl(), folder: folder.getUrl() };
+}
+
+/**
+ * ⚠️ 清空所有資料列與所有照片（保留標題列與資料夾本身）。測試完畢想從乾淨狀態開始時，
+ * 於編輯器手動執行。無法從網路呼叫，只有你本人在編輯器能執行。
+ */
+function clearAllData() {
+  const ss = getSS_();
+  Object.keys(HEADERS).forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (sheet && sheet.getLastRow() > 1) {
+      sheet.deleteRows(2, sheet.getLastRow() - 1);
+    }
+  });
+  const root = photoRoot_();
+  const folders = root.getFolders();
+  while (folders.hasNext()) folders.next().setTrashed(true);
+  const files = root.getFiles();
+  while (files.hasNext()) files.next().setTrashed(true);
+  Logger.log('已清空所有資料列與照片。');
 }

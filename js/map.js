@@ -73,6 +73,8 @@ export function initMap() {
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '© OpenStreetMap',
+    // 以 CORS 取得圖磚，Service Worker 才能拿到可快取的回應（預設的 opaque 回應無法快取）
+    crossOrigin: 'anonymous',
   }).addTo(map);
   markerLayer = L.layerGroup().addTo(map);
   map.addControl(LocateControl());

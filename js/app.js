@@ -600,3 +600,7 @@ if (api.isConfigured() && navigator.onLine) {
   sync.pull().then(renderHome).catch(() => {});
   syncInBackground();
 }
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}

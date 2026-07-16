@@ -210,6 +210,8 @@ textarea{resize:none;}
 
 /* dialog */
 dialog{
+  /* 最上方的 *{margin:0} 會蓋掉瀏覽器用來置中 dialog 的 margin:auto，必須補回來 */
+  margin:auto;
   border:none; border-radius:16px; padding:18px; width:min(340px, calc(100vw - 40px));
   background:var(--card); color:var(--text); font-family:inherit;
 }

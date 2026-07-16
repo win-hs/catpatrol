@@ -200,3 +200,8 @@ push 到 `win-hs/catpatrol` → 開 Pages → 手機 Android Chrome 實測完整
 - 不要引入本文件沒列的函式庫；不要加本文件沒有的功能（錄影、帳號系統、推播等都不做）。
 - API 網址等機密不 hardcode：存 localStorage，repo 裡只放 placeholder。Apps Script 網址本身公開也無妨（它只能寫入固定試算表），但仍建議 code.gs 內加一個簡單共享 token 檢查（token 由使用者部署時自訂，App 設定頁一併填入）。
 - 完成每個 Phase 後 git commit 一次，訊息寫明 Phase 編號。
+- **改動任何 shell 檔案（html/css/js）後，務必同時把 `sw.js` 的 `VERSION` 加一版**。
+  Service Worker 是 cache-first，不改版號的話已安裝的手機會永遠吃舊快取，更新送不出去。
+- **CSS 的 `*{margin:0}` 會蓋掉瀏覽器用來置中 `<dialog>` 的 `margin:auto`**，dialog 會卡在左上角。
+  `dialog{margin:auto}` 已修好，勿再移除。純用 JS 驗證（`dialog.open === true`）看不出這個問題，
+  版面相關的改動要實際看畫面。

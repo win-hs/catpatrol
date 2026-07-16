@@ -161,16 +161,15 @@ function fillGps(lngEl, latEl, btn) {
 
 /* ═══════════ 設備清單 ═══════════ */
 
-const NEW_PROJECT = '__new__';
-
 async function renderProjectSelects() {
   const projects = await store.getProjects();
   if (projects.length && !projects.some(p => p.id === store.settings.projectId)) {
     store.settings.projectId = projects[0].id;
   }
   const options = projects.map(p =>
-    `<option value="${p.id}"${p.id === store.settings.projectId ? ' selected' : ''}>${p.name}</option>`).join('');
-  $('project-select').innerHTML = options + `<option value="${NEW_PROJECT}">＋ 建立新專案…</option>`;
+    `<option value="${p.id}"${p.id === store.settings.projectId ? ' selected' : ''}>${p.name}</option>`
+  ).join('') || '<option value="">（尚無專案）</option>';
+  $('project-select').innerHTML = options;
   $('add-project').innerHTML = options;
   return projects;
 }
@@ -180,7 +179,7 @@ async function renderHome() {
   const list = $('device-list');
 
   if (!projects.length) {
-    list.innerHTML = '<div class="hint">還沒有任何專案。請從上方「＋ 建立新專案…」開始。</div>';
+    list.innerHTML = '<div class="hint">還沒有任何專案。請點上方的「＋ 新專案」建立第一個。</div>';
     renderDevices([]);
     return;
   }
@@ -209,15 +208,18 @@ async function renderHome() {
   })));
 }
 
-$('project-select').addEventListener('change', async e => {
-  if (e.target.value === NEW_PROJECT) {
-    const project = await askNewProject();
-    if (project) store.settings.projectId = project.id;
-    await renderHome();
-    return;
-  }
+$('project-select').addEventListener('change', e => {
   store.settings.projectId = e.target.value;
   renderHome();
+});
+
+// 建立專案必須是獨立按鈕：放在 select 裡當選項時，若它是唯一選項就已處於選中狀態，
+// 使用者再選它不會觸發 change，等於永遠按不動（新使用者第一步就卡死）
+$('project-new').addEventListener('click', async () => {
+  const project = await askNewProject();
+  if (!project) return;
+  store.settings.projectId = project.id;
+  await renderHome();
 });
 
 $('device-list').addEventListener('click', e => {
@@ -591,9 +593,14 @@ window.addEventListener('offline', renderSync);
 sync.setOnChange(updateSyncChip);
 
 initMap();
-await renderHome();
-await updateSyncChip();
-if (!store.settings.inspector) askInspector();
+try {
+  await renderHome();
+  await updateSyncChip();
+  if (!store.settings.inspector) askInspector();
+} catch (err) {
+  // 本機資料庫是所有功能的根基，開不起來就只能明確告知，不能靜默停在空畫面
+  alert(`無法開啟本機資料庫：${err.message}\n\n請關閉其他 CATPatrol 分頁後重新開啟本 App。`);
+}
 
 // 開啟時先拉雲端最新資料，再送出待上傳佇列
 if (api.isConfigured() && navigator.onLine) {

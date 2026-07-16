@@ -1,12 +1,24 @@
 const DB_NAME = 'catpatrol';
 const DB_VERSION = 1;
 
+const OPEN_TIMEOUT_MS = 10000;
+
 let dbPromise;
 
 function open() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+    // 開啟被佔用時瀏覽器可能連 blocked 都不發，只是無限期停住；
+    // 少了這個看門狗，App 會白畫面卡死且完全沒有訊息
+    const watchdog = setTimeout(
+      () => reject(new Error('開啟逾時，可能被其他 CATPatrol 分頁佔用')),
+      OPEN_TIMEOUT_MS
+    );
+    const settle = (fn, value) => { clearTimeout(watchdog); fn(value); };
+
+    req.onblocked = () => settle(reject, new Error('資料庫被其他 CATPatrol 分頁佔用'));
     req.onupgradeneeded = () => {
       const db = req.result;
       db.createObjectStore('projects', { keyPath: 'id' });
@@ -23,9 +35,10 @@ function open() {
       db.createObjectStore('queue', { keyPath: 'id' });
       db.createObjectStore('photos', { keyPath: 'photoId' });
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => settle(resolve, req.result);
+    req.onerror = () => settle(reject, req.error);
   });
+  dbPromise.catch(() => { dbPromise = null; }); // 失敗後允許重試
   return dbPromise;
 }
 

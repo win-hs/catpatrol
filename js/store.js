@@ -144,6 +144,7 @@ export async function addRecord(record, photoIds = []) {
     lastInspector: record.inspector,
     running: record.running,
     batteryPct: record.batteryPct,
+    lastNote: record.note,
   };
   if (record.sdChanged) updated.sdCard = record.sdNew;
   if (record.batteryChanged) updated.batteryType = record.batteryTypeNew;

@@ -53,8 +53,9 @@ function locateMe() {
 
 export function renderDevices(devices) {
   markerLayer.clearLayers();
+  // 座標壞掉（空白或 NaN）的設備不上圖：Leaflet 遇到 NaN 會丟例外，整個首頁跟著打不開
   const markers = devices
-    .filter(d => d.lat != null && d.lng != null)
+    .filter(d => Number.isFinite(d.lat) && Number.isFinite(d.lng))
     .map(d => L.circleMarker([d.lat, d.lng], {
       radius: 9, color: '#fff', weight: 2,
       fillColor: STATUS_COLOR[d.status] || '#6b7a70', fillOpacity: 1,

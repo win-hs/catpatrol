@@ -19,6 +19,14 @@ export function require(el, msg) {
   return false;
 }
 
+/** 經緯度：必填、須為單一數字且在範圍內（擋掉把「緯度, 經度」整串貼進同一格） */
+export function requireCoord(el, max, msg) {
+  const v = String(el.value).trim();
+  if (v && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= max) return true;
+  markError(el, msg);
+  return false;
+}
+
 /* ---------- 專案自訂欄位 ---------- */
 
 export function renderCustomFields(container, defs, values = {}) {

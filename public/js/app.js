@@ -182,8 +182,8 @@ $('add-save').addEventListener('click', async () => {
   let ok = form.require($('add-device-id'), '請輸入設備編號');
   ok = form.require($('add-model'), '請選擇相機型號') && ok;
   ok = form.require($('add-sd'), '請輸入記憶卡編號') && ok;
-  ok = form.require($('add-lng'), '請輸入經度或按 GPS 定位') && ok;
-  ok = form.require($('add-lat'), '請輸入緯度或按 GPS 定位') && ok;
+  ok = form.requireCoord($('add-lng'), 180, '請輸入經度數字（例：120.30772）或按 GPS 定位') && ok;
+  ok = form.requireCoord($('add-lat'), 90, '請輸入緯度數字（例：23.51234）或按 GPS 定位') && ok;
   ok = addCfg.validate() && ok;
   if (!$('add-project').value) { alert('請先建立專案'); ok = false; }
   if (!ok) return;
@@ -321,8 +321,8 @@ $('pt-save').addEventListener('click', async () => {
   if (sdChanged) ok = form.require($('pt-sd-new'), '請輸入新記憶卡編號') && ok;
   if (cfgChanged) ok = ptCfg.validate() && ok;
   if (locChanged) {
-    ok = form.require($('pt-lng'), '請輸入經度或按 GPS 定位') && ok;
-    ok = form.require($('pt-lat'), '請輸入緯度或按 GPS 定位') && ok;
+    ok = form.requireCoord($('pt-lng'), 180, '請輸入經度數字（例：120.30772）或按 GPS 定位') && ok;
+    ok = form.requireCoord($('pt-lat'), 90, '請輸入緯度數字（例：23.51234）或按 GPS 定位') && ok;
   }
   ok = form.validateCustomFields($('pt-custom'), patrolDefs) && ok;
   if (!ok) return;

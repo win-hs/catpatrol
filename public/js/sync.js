@@ -2,6 +2,7 @@ import * as db from './db.js';
 import * as store from './store.js';
 import * as api from './api.js';
 
+const KEEP_DONE_DAYS = 7;
 const MAX_BACKOFF_MS = 10 * 60 * 1000;
 
 let running = false;
@@ -71,8 +72,7 @@ export async function syncNow({ force = false } = {}) {
       try {
         await api.send(item.type, item.payload, await photosFor(item));
         for (const photoId of item.photoIds || []) await db.del('photos', photoId);
-        await db.del('queue', item.id); // 資料已在雲端，佇列只留待上傳的
-        onChange();
+        await save(item, { status: 'done', error: '', doneAt: Date.now() });
         result.uploaded += 1;
       } catch (err) {
         const retries = item.retries + 1;
@@ -101,11 +101,13 @@ async function save(item, patch) {
   onChange();
 }
 
-/** 舊版會把已上傳的項目在佇列留 7 天；現在上傳成功就移除，這裡清掉舊版留下的 */
-async function purgeDone() {
+/** 清掉已上傳的項目：同步時自動清超過 7 天的；同步分頁「清除已上傳」按鈕傳 0 清全部 */
+export async function purgeDone(keepDays = KEEP_DONE_DAYS) {
+  const cutoff = Date.now() - keepDays * 86400000;
   for (const item of await store.getQueue()) {
-    if (item.status === 'done') await db.del('queue', item.id);
+    if (item.status === 'done' && (item.doneAt ?? 0) <= cutoff) await db.del('queue', item.id);
   }
+  onChange();
 }
 
 /**

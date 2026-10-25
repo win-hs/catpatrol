@@ -404,6 +404,7 @@ async function renderSync() {
           <span class="st ${cls}">${label}</span></div>`;
       }).join('')
     : '<p class="sec-note" style="margin:0;">目前沒有待上傳的資料。</p>';
+  $('clear-done').hidden = !queue.some(q => q.status === 'done');
 
   setSeg($('upload-rule'), store.settings.uploadRule);
   $('inspector-input').value = store.settings.inspector;
@@ -475,6 +476,12 @@ $('field-add').addEventListener('click', async () => {
 
 $('dlg-field-type').addEventListener('change', e => {
   $('dlg-field-options-wrap').hidden = e.target.value !== '單選';
+});
+
+// 已上傳的資料都在雲端了，清掉的只是手機上的佇列紀錄
+$('clear-done').addEventListener('click', async () => {
+  await sync.purgeDone(0);
+  await renderSync();
 });
 
 $('upload-now').addEventListener('click', async e => {

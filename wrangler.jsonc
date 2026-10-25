@@ -16,8 +16,10 @@
     "run_worker_first": ["/api/*"]
   },
   "vars": {
-    // Cloudflare Access 的團隊網域與應用程式 AUD（公開資訊，用來驗證登入憑證）
-    "ACCESS_TEAM_DOMAIN": "https://falling-brook-5f0c.cloudflareaccess.com",
-    "ACCESS_AUD": "fac4ca6cf873564cf5e1858d56eb9ffb75a0a3572a78b042b3504f38165e4da4"
+    // Cloudflare Access 的團隊網域與應用程式 AUD（公開資訊，用來驗證登入憑證）。
+    // 改了 Zero Trust 團隊名稱或重建 Access 應用程式後兩者都會變：未登入時打開網站，
+    // 被導去的登入網址主機名稱＝團隊網域，網址參數 kid＝AUD。
+    "ACCESS_TEAM_DOMAIN": "https://wildervalley.cloudflareaccess.com",
+    "ACCESS_AUD": "839bdee597c883e37f7a3f4eae641a1dde0d5cb232bf2d7396cd5a1b1f2b587c"
   }
 }

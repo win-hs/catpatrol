@@ -97,6 +97,8 @@ Apps Script 網址和 token 只存在 Cloudflare 後台，手機上看不到。
 | App 顯示「Worker 尚未設定 APPS_SCRIPT_URL / API_TOKEN」 | 第 5 步的兩筆 Secret 沒設，或名稱打錯 |
 | App 顯示「Apps Script 回傳的不是 JSON」 | 部署時「誰可以存取」沒選「所有人」 |
 | App 顯示「登入已過期」 | 到「同步」分頁按「重新登入」，用白名單 email 收驗證碼 |
+| App 顯示「Worker 的 Access 設定…不符」 | 改過 Zero Trust 團隊名稱或重建了 Access 應用程式。未登入時開網站，登入網址的主機名稱＝團隊網域、`kid` 參數＝AUD，更新 `wrangler.jsonc` 的 `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` 後 push |
+| 收不到登入驗證碼 | Access 登入規則的條件要用「Emails」填完整地址（不是「Emails ending in」）；應用程式要勾選 One-time PIN 登入方式 |
 | 資料寫到別人的試算表 | 部署時「執行身分」沒選「我」 |
 | 想換一個新的試算表 | 專案設定 → 指令碼屬性 → 刪除 `SS_ID` → 重跑 `setup()` |
 | 照片沒進 Drive | 檢查 Drive 是否已滿；單張上限約 50MB（App 壓縮後約 300–500KB，正常不會超過） |

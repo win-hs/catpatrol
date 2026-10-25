@@ -14,9 +14,12 @@ export default {
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
     // workers.dev 前面已有 Access 擋著；這裡再驗一次憑證，避免日後多了沒保護的網址就直接漏資料
-    if (!(await verifyAccess(request, env))) {
-      return json({ ok: false, error: '登入已過期，請重新登入' }, 401);
+    const auth = await verifyAccess(request, env);
+    if (auth === 'mismatch') {
+      // 不能回 401：App 會當成登入過期，使用者重新登入也沒用
+      return json({ ok: false, error: 'Worker 的 Access 設定（wrangler.jsonc 的 ACCESS_TEAM_DOMAIN / ACCESS_AUD）與目前的 Cloudflare Access 不符' }, 500);
     }
+    if (auth !== 'ok') return json({ ok: false, error: '登入已過期，請重新登入' }, 401);
     if (!env.APPS_SCRIPT_URL || !env.API_TOKEN) {
       return json({ ok: false, error: 'Worker 尚未設定 APPS_SCRIPT_URL / API_TOKEN' }, 500);
     }
@@ -60,26 +63,28 @@ function json(obj, status) {
 
 /* ════════ Cloudflare Access 憑證驗證 ════════ */
 
+/** 'ok'｜'invalid'（沒帶、過期或簽章不對）｜'mismatch'（憑證屬於別的團隊或應用程式：多半是設定沒跟著改） */
 async function verifyAccess(request, env) {
   const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
   const parts = jwt ? jwt.split('.') : [];
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return 'invalid';
 
   try {
     const [head, body, sig] = parts;
     const header = JSON.parse(b64urlText(head));
     const claims = JSON.parse(b64urlText(body));
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (claims.iss !== env.ACCESS_TEAM_DOMAIN || !aud.includes(env.ACCESS_AUD)) return false;
-    if (!claims.exp || claims.exp * 1000 < Date.now()) return false;
+    if (claims.iss !== env.ACCESS_TEAM_DOMAIN || !aud.includes(env.ACCESS_AUD)) return 'mismatch';
+    if (!claims.exp || claims.exp * 1000 < Date.now()) return 'invalid';
 
     const key = await accessKey(env, header.kid);
-    if (!key) return false;
-    return await crypto.subtle.verify(
+    if (!key) return 'invalid';
+    const valid = await crypto.subtle.verify(
       'RSASSA-PKCS1-v1_5', key, b64urlBytes(sig), new TextEncoder().encode(`${head}.${body}`)
     );
+    return valid ? 'ok' : 'invalid';
   } catch {
-    return false;
+    return 'invalid';
   }
 }
 

@@ -2,7 +2,6 @@ import * as db from './db.js';
 import * as store from './store.js';
 import * as api from './api.js';
 
-const KEEP_DONE_DAYS = 7;
 const MAX_BACKOFF_MS = 10 * 60 * 1000;
 
 let running = false;
@@ -55,12 +54,12 @@ function photoName(item, seq) {
  */
 export async function syncNow({ force = false } = {}) {
   if (running) return { skipped: '同步中' };
-  if (!force && !canUploadNow()) return { skipped: '目前的上傳規則不允許上傳' };
 
   running = true;
   const result = { uploaded: 0, failed: 0 };
   try {
     await purgeDone();
+    if (!force && !canUploadNow()) return { skipped: '目前的上傳規則不允許上傳' };
     const queue = (await store.getQueue())
       .filter(q => q.status !== 'done')
       .sort((a, b) => (a.createdMs ?? 0) - (b.createdMs ?? 0));
@@ -72,7 +71,8 @@ export async function syncNow({ force = false } = {}) {
       try {
         await api.send(item.type, item.payload, await photosFor(item));
         for (const photoId of item.photoIds || []) await db.del('photos', photoId);
-        await save(item, { status: 'done', error: '', doneAt: Date.now() });
+        await db.del('queue', item.id); // 資料已在雲端，佇列只留待上傳的
+        onChange();
         result.uploaded += 1;
       } catch (err) {
         const retries = item.retries + 1;
@@ -101,36 +101,47 @@ async function save(item, patch) {
   onChange();
 }
 
+/** 舊版會把已上傳的項目在佇列留 7 天；現在上傳成功就移除，這裡清掉舊版留下的 */
 async function purgeDone() {
-  const cutoff = Date.now() - KEEP_DONE_DAYS * 86400000;
   for (const item of await store.getQueue()) {
-    if (item.status === 'done' && (item.doneAt ?? 0) < cutoff) await db.del('queue', item.id);
+    if (item.status === 'done') await db.del('queue', item.id);
   }
 }
 
-/** 從雲端拉最新資料合併進本機；本機有較新的巡檢時不覆蓋 */
+/**
+ * 從雲端拉最新資料合併進本機；本機有較新的巡檢時不覆蓋。
+ * 雲端已沒有的專案、欄位、設備（例如擁有者清空了試算表）本機也移除，讓每支手機都跟雲端一致；
+ * 還在佇列等上傳的不動，否則離線新增的資料會在上傳前被刪掉。
+ */
 export async function pull() {
   const data = await api.bootstrap();
-  for (const project of data.projects) await db.put('projects', project);
 
-  const remoteFieldIds = new Set(data.fieldDefs.map(f => f.id));
-  for (const def of data.fieldDefs) await db.put('fieldDefs', def);
-  // 雲端已刪除的欄位，本機也移除（本機仍待上傳的新欄位不受影響）
-  const pendingFieldIds = new Set(
-    (await store.getQueue())
-      .filter(q => q.status !== 'done' && q.type === 'saveFieldDef')
-      .map(q => q.payload.id)
-  );
-  for (const def of await db.all('fieldDefs')) {
-    if (!remoteFieldIds.has(def.id) && !pendingFieldIds.has(def.id)) {
-      await db.del('fieldDefs', def.id);
-    }
+  const keep = { projects: new Set(), fieldDefs: new Set(), devices: new Set() };
+  for (const { type, payload: p } of (await store.getQueue()).filter(q => q.status !== 'done')) {
+    if (type === 'addProject') keep.projects.add(p.id);
+    if (type === 'saveFieldDef') keep.fieldDefs.add(p.id);
+    if (type === 'addDevice') keep.devices.add(p.id);
+    if (type === 'addRecord') keep.devices.add(p.deviceId).add(p.newDeviceId);
+    if (p.projectId) keep.projects.add(p.projectId);
   }
 
+  for (const project of data.projects) await db.put('projects', project);
+  for (const def of data.fieldDefs) await db.put('fieldDefs', def);
   for (const device of data.devices) {
     const local = await db.get('devices', device.id);
     if (local && (local.lastPatrolAt || '') > (device.lastPatrolAt || '')) continue;
     await db.put('devices', device);
   }
+
+  await dropMissing('projects', data.projects, keep.projects);
+  await dropMissing('fieldDefs', data.fieldDefs, keep.fieldDefs);
+  await dropMissing('devices', data.devices, keep.devices);
   return data;
+}
+
+async function dropMissing(storeName, remote, keep) {
+  const remoteIds = new Set(remote.map(r => r.id));
+  for (const row of await db.all(storeName)) {
+    if (!remoteIds.has(row.id) && !keep.has(row.id)) await db.del(storeName, row.id);
+  }
 }

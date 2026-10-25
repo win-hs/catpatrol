@@ -12,7 +12,7 @@ export const setOnChange = fn => { onChange = fn; };
 
 /** 目前的上傳規則允不允許現在上傳 */
 export function canUploadNow() {
-  if (!navigator.onLine || !api.isConfigured()) return false;
+  if (!navigator.onLine) return false;
   const rule = store.settings.uploadRule;
   if (rule === 'manual') return false;
   if (rule === 'any') return true;
@@ -55,7 +55,6 @@ function photoName(item, seq) {
  */
 export async function syncNow({ force = false } = {}) {
   if (running) return { skipped: '同步中' };
-  if (!api.isConfigured()) return { skipped: '尚未設定雲端 API 網址' };
   if (!force && !canUploadNow()) return { skipped: '目前的上傳規則不允許上傳' };
 
   running = true;
@@ -85,6 +84,7 @@ export async function syncNow({ force = false } = {}) {
         });
         result.failed += 1;
         result.error = String(err.message || err);
+        result.loginExpired = err instanceof api.LoginExpiredError;
         break;
       }
     }

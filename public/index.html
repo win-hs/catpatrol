@@ -11,7 +11,6 @@
 <link rel="stylesheet" href="lib/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/app.css">
 <script src="lib/leaflet/leaflet.js"></script>
-<script src="lib/html5-qrcode.min.js"></script>
 </head>
 <body>
 
@@ -53,16 +52,10 @@
       <select id="add-project"></select>
 
       <label class="f">設備編號 <span class="req">*</span></label>
-      <div class="row">
-        <input type="text" id="add-device-id" placeholder="掃描或手動輸入">
-        <button class="btn small" type="button" data-toggle-scan="#add-scanbox"
-                data-scanner="add-scanner" data-msg="add-scan-msg">📷 掃碼綁定</button>
-      </div>
-      <div class="scanbox" id="add-scanbox" hidden>
-        <div class="scanner" id="add-scanner"></div>
-        <p id="add-scan-msg">將設備上的 QR code 對準框內</p>
-      </div>
-      <p class="sec-note" style="margin-top:6px;">掃描設備上現有的 QR code / 條碼，即綁定為此設備。</p>
+      <input type="text" id="add-device-id" placeholder="例：YS-LTMM-001">
+
+      <label class="f">相機型號 <span class="req">*</span></label>
+      <select id="add-model"></select>
 
       <label class="f">巡檢人員 <span class="auto-chip">自動帶入</span></label>
       <input type="text" id="add-inspector" readonly>
@@ -93,7 +86,9 @@
         </div>
         <div>
           <label class="f">電量 %</label>
-          <input type="number" id="add-battery-pct" value="100" min="0" max="100" inputmode="numeric">
+          <select id="add-battery-pct">
+            <option>100</option><option>75</option><option>50</option><option>25</option>
+          </select>
         </div>
       </div>
     </div>
@@ -107,12 +102,36 @@
         <button type="button" data-value="影片">影片</button>
         <button type="button" data-value="照片+影片">照片+影片</button>
       </div>
-      <div class="row" style="margin-top:10px;">
+      <div class="row" id="add-photo-grp" style="margin-top:10px;">
+        <div><label class="f" style="margin-top:0;">照片畫質</label>
+          <select id="add-photo-q"></select>
+          <input type="text" id="add-photo-q-other" placeholder="輸入畫質，例：24MP" style="margin-top:6px;" hidden>
+        </div>
         <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" id="add-burst" value="3" min="1" inputmode="numeric"></div>
+      </div>
+      <div class="row" id="add-video-grp" style="margin-top:10px;" hidden>
+        <div><label class="f" style="margin-top:0;">影片畫質</label>
+          <select id="add-video-q"></select>
+          <input type="text" id="add-video-q-other" placeholder="輸入畫質，例：720p" style="margin-top:6px;" hidden>
+        </div>
+        <div><label class="f" style="margin-top:0;">影片秒數</label><input type="number" id="add-video-sec" min="1" inputmode="numeric"></div>
+      </div>
+      <div class="row" style="margin-top:10px;">
         <div><label class="f" style="margin-top:0;">感度</label>
           <select id="add-sens"><option>高</option><option selected>中</option><option>低</option></select>
         </div>
         <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" id="add-interval" value="30" min="0" inputmode="numeric"></div>
+      </div>
+      <div class="tgl-row" style="margin-top:6px;">
+        <span>指定工作時段（關閉＝全天）</span>
+        <button class="tgl" type="button" data-tgl data-reveal="#add-hours" id="add-hours-on"></button>
+      </div>
+      <div id="add-hours" class="reveal" hidden>
+        <div class="row">
+          <div><label class="f" style="margin-top:0;">開始</label><input type="time" id="add-hours-start"></div>
+          <div><label class="f" style="margin-top:0;">結束</label><input type="time" id="add-hours-end"></div>
+        </div>
+        <p class="sec-note" style="margin:6px 0 0;">結束早於開始＝跨夜，例如 18:00 到隔天 06:00。</p>
       </div>
       <label class="f">設定備註</label>
       <input type="text" id="add-config-note" placeholder="例：夜間紅外燈設為低功率">
@@ -133,16 +152,7 @@
   <section class="screen" id="scr-patrol">
     <h2 class="pg">巡檢紀錄</h2>
 
-    <button class="btn sub" type="button" data-toggle-scan="#patrol-scanbox"
-            data-scanner="patrol-scanner" data-msg="patrol-scan-msg"
-            data-label-on="✕ 關閉掃描" data-label-off="📷 掃描 QR code"
-            style="margin-bottom:12px;">📷 掃描 QR code</button>
-    <div class="scanbox" id="patrol-scanbox" hidden>
-      <div class="scanner" id="patrol-scanner"></div>
-      <p id="patrol-scan-msg">將 QR code 對準框內自動辨識</p>
-    </div>
-
-    <div class="divider">或手動選擇</div>
+    <label class="f" style="margin-top:0;">選擇設備</label>
     <div class="row" style="margin-bottom:14px;">
       <select id="patrol-device"></select>
     </div>
@@ -159,8 +169,20 @@
         <h3>本次巡檢 <span class="auto-chip" id="patrol-meta"></span></h3>
 
         <div class="tgl-row">
-          <span>設備持續運作中</span>
-          <button class="tgl on" type="button" data-tgl id="pt-running"></button>
+          <span>相機中斷（故障或沒電）</span>
+          <button class="tgl" type="button" data-tgl id="pt-down"></button>
+        </div>
+
+        <div class="tgl-row">
+          <span>更換相機</span>
+          <button class="tgl" type="button" data-tgl data-reveal="#swap-new" id="pt-swap"></button>
+        </div>
+        <div id="swap-new" class="reveal" hidden>
+          <label class="f" style="margin-top:0;">新相機編號 <span class="req">*</span></label>
+          <input type="text" id="pt-new-id" placeholder="例：YS-LTMM-012">
+          <label class="f">新相機型號 <span class="req">*</span></label>
+          <select id="pt-new-model"></select>
+          <p class="sec-note" style="margin-top:6px;" id="pt-swap-note"></p>
         </div>
 
         <div class="tgl-row">
@@ -185,7 +207,9 @@
         </div>
 
         <label class="f">目前電量 % <span class="req">*</span></label>
-        <input type="number" id="pt-battery-pct" min="0" max="100" inputmode="numeric">
+        <select id="pt-battery-pct">
+          <option value="">請選擇…</option><option>100</option><option>75</option><option>50</option><option>25</option>
+        </select>
 
         <div class="tgl-row" style="margin-top:6px;">
           <span>設定有變動</span>
@@ -198,12 +222,36 @@
             <button type="button" data-value="影片">影片</button>
             <button type="button" data-value="照片+影片">照片+影片</button>
           </div>
-          <div class="row" style="margin-top:10px;">
+          <div class="row" id="pt-photo-grp" style="margin-top:10px;">
+            <div><label class="f" style="margin-top:0;">照片畫質</label>
+              <select id="pt-photo-q"></select>
+              <input type="text" id="pt-photo-q-other" placeholder="輸入畫質，例：24MP" style="margin-top:6px;" hidden>
+            </div>
             <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" id="pt-burst" min="1" inputmode="numeric"></div>
+          </div>
+          <div class="row" id="pt-video-grp" style="margin-top:10px;" hidden>
+            <div><label class="f" style="margin-top:0;">影片畫質</label>
+              <select id="pt-video-q"></select>
+              <input type="text" id="pt-video-q-other" placeholder="輸入畫質，例：720p" style="margin-top:6px;" hidden>
+            </div>
+            <div><label class="f" style="margin-top:0;">影片秒數</label><input type="number" id="pt-video-sec" min="1" inputmode="numeric"></div>
+          </div>
+          <div class="row" style="margin-top:10px;">
             <div><label class="f" style="margin-top:0;">感度</label>
               <select id="pt-sens"><option>高</option><option>中</option><option>低</option></select>
             </div>
             <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" id="pt-interval" min="0" inputmode="numeric"></div>
+          </div>
+          <div class="tgl-row" style="margin-top:6px;">
+            <span>指定工作時段（關閉＝全天）</span>
+            <button class="tgl" type="button" data-tgl data-reveal="#pt-hours" id="pt-hours-on"></button>
+          </div>
+          <div id="pt-hours" class="reveal" hidden>
+            <div class="row">
+              <div><label class="f" style="margin-top:0;">開始</label><input type="time" id="pt-hours-start"></div>
+              <div><label class="f" style="margin-top:0;">結束</label><input type="time" id="pt-hours-end"></div>
+            </div>
+            <p class="sec-note" style="margin:6px 0 0;">結束早於開始＝跨夜，例如 18:00 到隔天 06:00。</p>
           </div>
           <label class="f">設定備註</label>
           <input type="text" id="pt-config-note">
@@ -249,6 +297,7 @@
     <h2 class="pg">同步與設定</h2>
 
     <div class="hint" id="net-hint"></div>
+    <button class="btn sub" type="button" id="relogin" style="margin-bottom:12px;" hidden>🔒 重新登入</button>
 
     <div class="card">
       <h3>上傳佇列</h3>
@@ -281,13 +330,6 @@
       <button class="btn sub" type="button" id="field-add" style="margin-top:10px;">＋ 新增自訂欄位</button>
     </div>
 
-    <div class="card">
-      <h3>雲端 API 網址</h3>
-      <input type="text" id="api-url" placeholder="貼上 Apps Script 部署網址">
-      <label class="f">共享 token</label>
-      <input type="text" id="api-token" placeholder="部署時自訂的 token">
-      <button class="btn sub" type="button" id="api-save" style="margin-top:10px;">儲存</button>
-    </div>
   </section>
 
 </main>

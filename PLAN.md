@@ -8,23 +8,27 @@
 
 ## 0. 專案概述
 
-生態相機陷阱（camera trap）野外巡檢紀錄工具。巡檢人員在山區（常無網路）用手機記錄每台相機的狀態、更換記憶卡/電池、拍攝現場照片；回到有網路處後，所有資料統一上傳到**專案擁有者的 Google 雲端**（Sheets + Drive）。多專案多團隊使用，使用者本身**免登入、免 Google 帳號**。
+生態相機陷阱（camera trap）野外巡檢紀錄工具。巡檢人員在山區（常無網路）用手機記錄每台相機的狀態、更換記憶卡/電池、拍攝現場照片；回到有網路處後，所有資料統一上傳到**專案擁有者的 Google 雲端**（Sheets + Drive）。多專案多團隊使用，使用者本身**免 Google 帳號**；網站僅限內部，名單內的人以 email 驗證碼登入（Cloudflare Access，2026-10-25 改）。
 
 ### 已確認規格（訪談結論，勿更動）
 
 | 項目 | 決定 |
 |---|---|
-| 形式 | PWA（GitHub Pages 部署、加入主畫面、離線可用） |
+| 形式 | 手機瀏覽器直接開網頁使用，不安裝成 App；保留 Service Worker 讓離線可用（2026-10-25 改：原為 GitHub Pages + 加入主畫面） |
+| 存取控管 | Cloudflare Workers（靜態網站）部署於 `https://catpatrol.a-wen90.workers.dev/`，前面加 Cloudflare Access（email 白名單＋驗證碼登入），外人看不到網頁；repo 改私人 |
 | 平台 | 手機優先（Android 為主），瀏覽器通用 |
 | 後端 | Google Apps Script Web App 當 API；紀錄寫入擁有者的 Google Sheets、照片存擁有者的 Drive |
 | 使用者驗證 | 無帳號系統；首次使用輸入巡檢人員姓名，存 localStorage，之後自動帶入 |
 | 錄影 | **不做**。照片為主 |
 | 照片 | 上傳前壓縮（長邊 1600px、JPEG 品質約 0.8，目標 300–500KB） |
-| QR code | 設備已有現成碼；新增設備時掃一次綁定編號。App 不產碼 |
+| QR code | ~~設備已有現成碼；新增設備時掃一次綁定編號~~ → 2026-10-25 **先拿掉**，設備編號一律手動輸入（`js/qr.js`、`lib/html5-qrcode.min.js` 與 scanbox/divider 樣式保留以便加回） |
+| 相機型號 | 下拉：Meidase P70 / Meidase P60 Pro / Browning Spec Ops Elite HP5 Ultra（2026-10-25 加，選項與各型號畫質定義在 `js/cam-config.js`） |
+| 更換相機 | 巡檢時可「更換相機」：填新相機編號＋型號，舊相機標「已撤下」並從清單隱藏，新相機接手位置、耗材與設定（2026-10-25 加）。已撤下的編號目前不能再用（重新部署同一台相機要等 CATBase 生命週期） |
 | 自訂欄位 | 依專案自訂（勾選/單選/文字/數字），該專案所有設備巡檢表單共用 |
-| 設備設定 | 結構化欄位（拍攝模式/連拍張數/感度/間隔秒/備註），首次必填，之後沿用，勾「有變動」才改 |
+| 設備設定 | 結構化欄位（拍攝模式/照片畫質/連拍張數/影片畫質/影片秒數/感度/間隔秒/工作時段/備註），首次必填，之後沿用，勾「有變動」才改。畫質選項隨型號；照片欄位只在照片模式顯示、影片欄位只在影片模式顯示；工作時段預設全天，可跨夜（2026-10-25 加畫質/秒數/工作時段） |
 | 經緯度 | 同上：首次定位，之後沿用，勾「位置有變動」才重新定位 |
-| 電量 | 百分比數字 0–100 |
+| 電量 | 下拉 100% / 75% / 50% / 25%（2026-10-25 改；原為數字 0–100），25% 算電量低 |
+| 運作狀態 | 巡檢開關「相機中斷（故障或沒電）」預設關（2026-10-25 改；原為「設備持續運作中」預設開）。試算表仍用「持續運作」欄，中斷時寫 FALSE |
 | 電池類型 | 下拉選項：鹼性 / 鎳氫 / 鋰電 / 外接電源 |
 | 離線 | 紀錄與照片存 IndexedDB；上傳規則三選一：任何網路 / 僅 WiFi / 手動 |
 | 上次狀態比對 | 選擇設備後顯示上次巡檢摘要卡片 |
@@ -40,14 +44,15 @@
   - `lib/leaflet/`（leaflet.js + leaflet.css + images/，v1.9.x）
   - `lib/html5-qrcode.min.js`（QR 掃描，或 jsQR + 自寫 getUserMedia 迴圈，擇一）
 - 本機預覽：Service Worker 需要 http(s)，`file://` 不行。用 PowerShell HttpListener 起簡易靜態伺服器（此環境慣用做法），或先以 `file://` 測非 SW 功能。
-- 部署：GitHub 帳號 `win-hs`，建 repo `catpatrol` → Settings 開 GitHub Pages（main branch）→ `https://win-hs.github.io/catpatrol/`。git push 用 https + 使用者手動處理認證（無 gh CLI）。
+- 部署：GitHub 帳號 `win-hs`，repo `catpatrol`。git push 用 https + 使用者手動處理認證（無 gh CLI）。
+  ~~GitHub Pages `https://win-hs.github.io/catpatrol/`~~ → 2026-10-25 改為 Cloudflare Workers 靜態網站（無建置步驟）＋ Cloudflare Access 擋外人，網址 `https://catpatrol.a-wen90.workers.dev/`。路徑全為相對路徑，從網站根目錄跑不用改程式。Worker 的 Preview URLs 要關掉或另外加 Access，否則預覽網址不受保護。
 
 ---
 
 ## 2. 系統架構
 
 ```
-[手機 PWA (GitHub Pages)]
+[手機瀏覽器網頁 (Cloudflare Workers + Access 登入)]
   ├─ UI（四分頁：設備/新增/巡檢/同步）
   ├─ IndexedDB：devices, records, photos, queue, fieldDefs, projects
   ├─ localStorage：巡檢人員姓名、上傳規則、API URL
@@ -69,13 +74,15 @@
 **專案**：`project_id | 專案名稱 | 建立日期 | 狀態`
 
 **設備**（每台一列＝目前最新狀態，巡檢上傳後更新）：
-`device_id | project_id | QR碼內容 | 經度 | 緯度 | 記憶卡編號 | 電池類型 | 電量% | 拍攝模式 | 連拍張數 | 感度 | 間隔秒 | 設定備註 | 建立人員 | 建立時間 | 最後巡檢時間 | 最後巡檢人員 | 持續運作 | 最後備註 | 狀態`
+`device_id | project_id | QR碼內容 | 經度 | 緯度 | 記憶卡編號 | 電池類型 | 電量% | 拍攝模式 | 連拍張數 | 感度 | 間隔秒 | 設定備註 | 建立人員 | 建立時間 | 最後巡檢時間 | 最後巡檢人員 | 持續運作 | 最後備註 | 狀態 | 相機型號 | 照片畫質 | 影片畫質 | 影片秒數 | 工作時間`
+
+> 2026-10-25 在最右邊追加 `相機型號 | 照片畫質 | 影片畫質 | 影片秒數 | 工作時間`（第 21–25 欄）。CATBase 的主檔欄因此順延到第 26 欄起（見 CATSpec\PLAN.md）。
 
 > Phase 4 補上 `電量% / 最後巡檢人員 / 持續運作 / 最後備註`：原始欄位不足以讓 App 從 bootstrap
 > 還原「上次巡檢狀態」比對卡與狀態徽章（狀態徽章需 電量% 與 持續運作，比對卡需人員與備註）。
 
 **巡檢紀錄**（只增不改的流水帳）：
-`record_id | 巡檢時間 | project_id | device_id | 巡檢人員 | 持續運作 | 更換記憶卡 | 新記憶卡編號 | 取回記憶卡編號 | 更換電池 | 新電池類型 | 電量% | 設定有變動 | 新設定摘要 | 位置有變動 | 經度 | 緯度 | 照片張數 | 照片資料夾連結 | 備註 | 自訂欄位JSON | 上傳時間`
+`record_id | 巡檢時間 | project_id | device_id | 巡檢人員 | 持續運作 | 更換記憶卡 | 新記憶卡編號 | 取回記憶卡編號 | 更換電池 | 新電池類型 | 電量% | 設定有變動 | 新設定摘要 | 位置有變動 | 經度 | 緯度 | 照片張數 | 照片資料夾連結 | 備註 | 自訂欄位JSON | 上傳時間 | 更換相機 | 新設備編號 | 新相機型號`（後 3 欄 2026-10-25 加）
 
 **自訂欄位定義**：`project_id | 欄位名稱 | 類型(勾選/單選/文字/數字) | 選項(逗號分隔) | 必填 | 排序 | field_id`
 （`field_id` 為 Phase 4 補上：欄位定義需可更新，靠它比對是新增還是修改）
@@ -85,12 +92,18 @@
 規則：
 - `record_id` = `REC-{yyyyMMdd-HHmmss}-{3碼隨機}`，**手機離線時產生**；後端以它去重（重送不重複寫入）。
 - 設定/位置「沒變動」→ 紀錄列該欄留空＝沿用；「有變動」→ 填新值並同步更新「設備」分頁。
-- 「設備」分頁的`狀態`欄由後端依最新紀錄計算：`正常`（持續運作 且 電量>40）/`電量低`（電量≤40）/`異常`（未持續運作）。前端另計算`待巡檢`（>60 天未巡檢），不寫回表。
+- 「設備」分頁的`狀態`欄由後端依最新紀錄計算：`正常`（持續運作 且 電量>25）/`電量低`（電量≤25）/`異常`（未持續運作）/`已撤下`（被更換掉的相機，bootstrap 回傳 `retired:true`，App 不再顯示）。前端另計算`待巡檢`（>60 天未巡檢），不寫回表。
+- 更換相機的紀錄：該筆紀錄的 device_id 是舊相機；後端把舊相機列標`已撤下`，另起一列給新相機（複製舊列的位置/耗材/設定，再套用本次變動）。
 - 照片檔名：`{device_id}_{yyyyMMdd}_{HHmm}_{序號}.jpg`；Drive 路徑 `CATPatrol_照片/{專案名稱}/{device_id}/{yyyy-MM-dd}/`。
 
 ### 2.2 Apps Script API 介面
 
 單一 Web App，用 `action` 參數分流。回傳一律 JSON `{ok:true, ...}` 或 `{ok:false, error:"..."}`。
+
+> 2026-10-25 起 App 不直接呼叫 Apps Script：手機打同網域的 `GET /api/bootstrap`、`POST /api/write`，
+> 由 Cloudflare Worker（`worker/index.js`）驗證 Access 登入憑證後，把 token 放進網址參數代轉
+> （body 不解析、原封轉送）。Apps Script 網址與 token 只存在 Worker secrets（`APPS_SCRIPT_URL`、`API_TOKEN`）。
+> 登入過期時 Worker 回 401 或 Access 302，App 顯示「重新登入」，資料留在佇列。
 
 - `GET ?action=bootstrap` → `{projects:[...], fieldDefs:[...], devices:[...]}`（App 啟動/手動重新整理時同步下來，存 IndexedDB 供離線用）
 - `POST {action:"addDevice", device:{...}, photos:[{name, dataBase64}...]}`
@@ -130,11 +143,11 @@ Service Worker：
 以 [`ui-mockup.html`](ui-mockup.html) 為準（含配色、卡片樣式、四分頁結構）。重點行為：
 
 1. **設備分頁**：專案下拉；OSM 地圖（狀態色標記：綠=正常、橘=電量低/待巡檢、紅=異常；點標記彈出摘要；右上角📍定位自身）；設備卡片列表（點卡片→巡檢分頁並帶入該設備）；「＋新增設備」按鈕。
-2. **新增分頁**：專案、設備編號（手動輸入或「掃碼綁定」開相機掃現成 QR）、巡檢人員與時間自動帶入唯讀、GPS 一鍵定位（顯示精度）、記憶卡編號、電池類型下拉、電量、結構化設備設定、架設照片、儲存→進 queue。
-3. **巡檢分頁**：「掃描 QR code」按鈕（**預設收合**，點了才開掃描視窗）或手動下拉選設備→帶出「上次巡檢狀態」綠底比對卡；本次表單：持續運作開關、更換記憶卡開關（開→展開新卡編號欄，自動顯示並記錄取回卡=上次卡號）、更換電池開關（開→展開新電池類型下拉）、電量%、「設定有變動」開關（開→展開設定欄位，預填上次值）、「位置有變動」開關（開→重新 GPS 定位）、專案自訂欄位（依 fieldDefs 動態生成）、現場照片、備註、完成→存 queue。
-4. **同步分頁**：離線/在線狀態提示、上傳佇列列表（待上傳/上傳中/已上傳/失敗重試）、「立即全部上傳」、上傳規則三段切換、巡檢人員姓名編輯、專案自訂欄位管理（列表＋新增：名稱/類型/選項/必填）、API 網址設定（首次設定時貼 Apps Script 部署網址）。
+2. **新增分頁**：專案、設備編號（手動輸入）、相機型號、巡檢人員與時間自動帶入唯讀、GPS 一鍵定位（顯示精度）、記憶卡編號、電池類型下拉、電量、結構化設備設定、架設照片、儲存→進 queue。
+3. **巡檢分頁**：下拉選設備→帶出「上次巡檢狀態」綠底比對卡；本次表單：相機中斷開關、更換相機開關（開→新相機編號＋型號；換成不同型號時自動打開「設定有變動」）、更換記憶卡開關（開→展開新卡編號欄，自動顯示並記錄取回卡=上次卡號）、更換電池開關（開→展開新電池類型下拉）、電量%、「設定有變動」開關（開→展開設定欄位，預填上次值）、「位置有變動」開關（開→重新 GPS 定位）、專案自訂欄位（依 fieldDefs 動態生成）、現場照片、備註、完成→存 queue。
+4. **同步分頁**：離線/在線狀態提示、上傳佇列列表（待上傳/上傳中/已上傳/失敗重試）、「立即全部上傳」、上傳規則三段切換、巡檢人員姓名編輯、專案自訂欄位管理（列表＋新增：名稱/類型/選項/必填）、登入過期時的「重新登入」按鈕（~~API 網址設定~~ 2026-10-25 移除，改由 Cloudflare 代轉）。
 
-必填驗證：設備編號、記憶卡編號、（首次）經緯度與設備設定、自訂欄位標必填者。掃描到未知 QR 碼時提示「查無此設備，是否新增？」→ 跳新增分頁預填碼內容。
+必填驗證：設備編號、相機型號、記憶卡編號、（首次）經緯度與設備設定（含顯示中的畫質、影片秒數、指定工作時段的起訖）、自訂欄位標必填者。
 
 ---
 
@@ -146,21 +159,25 @@ Service Worker：
 從 mockup 拆出正式檔案結構：
 ```
 catpatrol/
-├─ index.html          # 單頁，四個 screen
-├─ css/app.css
-├─ js/app.js           # 導覽與初始化
-├─ js/db.js            # IndexedDB wrapper
-├─ js/store.js         # 狀態管理（目前專案/設備/人員）
-├─ js/api.js           # Apps Script fetch 封裝
-├─ js/sync.js          # queue 與上傳規則
-├─ js/camera.js        # 拍照+壓縮
-├─ js/qr.js            # QR 掃描
-├─ js/map.js           # Leaflet 地圖
-├─ js/form.js          # 表單生成（含自訂欄位）與驗證
-├─ sw.js               # Service Worker
-├─ manifest.webmanifest
-├─ lib/…               # leaflet、html5-qrcode 本地檔
-├─ icons/              # PWA icon 192/512（簡單 SVG 轉 PNG 或手繪風格皆可）
+├─ public/             # 網站本身（2026-10-25 從 repo 根目錄搬進來，Cloudflare 只公開這個資料夾）
+│  ├─ index.html       # 單頁，四個 screen
+│  ├─ css/app.css
+│  ├─ js/app.js        # 導覽與初始化
+│  ├─ js/db.js         # IndexedDB wrapper
+│  ├─ js/store.js      # 狀態管理（目前專案/設備/人員）
+│  ├─ js/api.js        # /api fetch 封裝（經 Worker 代轉）
+│  ├─ js/sync.js       # queue 與上傳規則
+│  ├─ js/camera.js     # 拍照+壓縮
+│  ├─ js/cam-config.js # 相機型號與設備設定欄位（畫質/秒數/工作時段）
+│  ├─ js/qr.js         # QR 掃描（目前未使用）
+│  ├─ js/map.js        # Leaflet 地圖
+│  ├─ js/form.js       # 表單生成（含自訂欄位）與驗證
+│  ├─ sw.js            # Service Worker
+│  ├─ manifest.webmanifest
+│  ├─ lib/…            # leaflet、html5-qrcode 本地檔
+│  └─ icons/           # icon 192/512
+├─ worker/index.js     # Cloudflare Worker：驗證 Access 登入後代轉 /api 到 Apps Script
+├─ wrangler.jsonc      # Worker 設定（Workers Builds 依此部署）
 └─ apps-script/code.gs # 後端原始碼（放 repo 存查，部署時貼到 script.google.com）
 ```
 **驗證**：本機 http 伺服器開啟，四分頁切換正常、mockup 視覺還原、手機寬度 RWD 正常、無 console 錯誤。
@@ -187,7 +204,7 @@ map.js（bootstrap 的設備座標上圖、狀態色、定位按鈕）、sw.js�
 **驗證**：Lighthouse PWA 檢查通過（可安裝）；離線重新整理 App 照常開；離線時地圖顯示已快取圖磚與所有標記；「加入主畫面」後全螢幕開啟。
 
 ### Phase 7 — 部署與實機驗收
-push 到 `win-hs/catpatrol` → 開 Pages → 手機 Android Chrome 實測完整流程：安裝→設 API 網址→bootstrap→新增設備（掃碼+GPS+拍照）→關網路巡檢→回 WiFi 自動上傳→Sheets/Drive 核對。
+~~push 到 `win-hs/catpatrol` → 開 Pages~~（已完成，2026-10-25 改為搬到 Cloudflare Workers + Access，搬完關閉 GitHub Pages、repo 改私人）→ 手機 Android Chrome 實測完整流程：無痕視窗確認外人只看到登入頁→名單內 email 收碼登入→設 API 網址→bootstrap→新增設備（掃碼+GPS+拍照）→關網路巡檢（瀏覽器分頁內，離線重新整理仍可開）→回 WiFi 自動上傳→Sheets/Drive 核對。
 **驗證**：上述全流程一次通過；把測試產生的假資料清乾淨，留一組示範專案。
 
 ---

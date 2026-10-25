@@ -4,8 +4,6 @@ const LS = {
   inspector: 'catpatrol.inspector',
   uploadRule: 'catpatrol.uploadRule',
   project: 'catpatrol.project',
-  apiUrl: 'catpatrol.apiUrl',
-  apiToken: 'catpatrol.apiToken',
 };
 
 export const settings = {
@@ -15,10 +13,6 @@ export const settings = {
   set uploadRule(v) { localStorage.setItem(LS.uploadRule, v); },
   get projectId() { return localStorage.getItem(LS.project) || ''; },
   set projectId(v) { localStorage.setItem(LS.project, v); },
-  get apiUrl() { return localStorage.getItem(LS.apiUrl) || ''; },
-  set apiUrl(v) { localStorage.setItem(LS.apiUrl, v); },
-  get apiToken() { return localStorage.getItem(LS.apiToken) || ''; },
-  set apiToken(v) { localStorage.setItem(LS.apiToken, v); },
 };
 
 /* ---------- 時間與 id ---------- */
@@ -59,14 +53,14 @@ export const STALE_DAYS = 60;
 export function deviceStatus(d) {
   if (d.running === false) return '異常';
   if (daysSince(d.lastPatrolAt) > STALE_DAYS) return '待巡檢';
-  if (d.batteryPct != null && d.batteryPct <= 40) return '電量低';
+  if (d.batteryPct != null && d.batteryPct <= 25) return '電量低';
   return '正常';
 }
 
 export function deviceSummary(d) {
   const status = deviceStatus(d);
   const when = `上次巡檢 ${dateOnly(d.lastPatrolAt)}`;
-  if (status === '異常') return `${when} · 停止運作 · ${d.lastInspector || ''}`;
+  if (status === '異常') return `${when} · 相機中斷 · ${d.lastInspector || ''}`;
   if (status === '待巡檢') return `${when} · 超過 ${STALE_DAYS} 天未巡檢`;
   return `${when} · 電量 ${d.batteryPct ?? '—'}% · ${d.lastInspector || ''}`;
 }
@@ -76,18 +70,15 @@ export function deviceSummary(d) {
 export const getProjects = () => db.all('projects');
 export const getFieldDefs = projectId =>
   db.byIndex('fieldDefs', 'projectId', projectId).then(f => f.sort((a, b) => a.order - b.order));
-export const getDevices = projectId => db.byIndex('devices', 'projectId', projectId);
+// 已撤下（被更換掉）的相機不再出現在清單、地圖與巡檢選單
+export const getDevices = projectId =>
+  db.byIndex('devices', 'projectId', projectId).then(ds => ds.filter(d => !d.retired));
 export const getDevice = id => db.get('devices', id);
 export const getQueue = () => db.all('queue');
 
 export async function getLastRecord(deviceId) {
   const records = await db.byIndex('records', 'deviceId', deviceId);
   return records.sort((a, b) => b.patrolAt.localeCompare(a.patrolAt))[0] || null;
-}
-
-export async function findDeviceByCode(code) {
-  const devices = await db.all('devices');
-  return devices.find(d => d.id === code || d.qrCode === code) || null;
 }
 
 /* ---------- 寫入 ---------- */
@@ -152,6 +143,26 @@ export async function addRecord(record, photoIds = []) {
   if (record.batteryChanged) updated.batteryType = record.batteryTypeNew;
   if (record.configChanged) updated.config = record.config;
   if (record.locationChanged) { updated.lng = record.lng; updated.lat = record.lat; }
+
+  if (record.cameraSwapped) {
+    // 舊相機撤下；新相機接手位置、耗材與設定，之後的巡檢都對新編號（後端收到這筆紀錄時做同樣的事）
+    await db.put('devices', {
+      ...device,
+      lastPatrolAt: record.patrolAt,
+      lastInspector: record.inspector,
+      running: record.running,
+      lastNote: record.note,
+      retired: true,
+    });
+    Object.assign(updated, {
+      id: record.newDeviceId,
+      qrCode: record.newDeviceId,
+      cameraModel: record.newCameraModel,
+      running: true,
+      createdBy: record.inspector,
+      createdAt: record.patrolAt,
+    });
+  }
   await db.put('devices', updated);
 
   await enqueue('addRecord', { ...record, photoIds }, photoIds);

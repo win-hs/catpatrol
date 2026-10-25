@@ -1,5 +1,6 @@
 # 本機預覽伺服器（此環境無 Node/Python）。用法：powershell -File serve.ps1 [-Port 8080]
-param([int]$Port = 8080, [string]$Root = $PSScriptRoot)
+# 只供靜態檔，沒有 /api（雲端 API 由 Cloudflare Worker 代轉，本機預覽時上傳會失敗，資料留在佇列）
+param([int]$Port = 8080, [string]$Root = (Join-Path $PSScriptRoot 'public'))
 
 $mime = @{
   '.html' = 'text/html; charset=utf-8'

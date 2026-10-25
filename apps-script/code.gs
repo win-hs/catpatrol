@@ -1,21 +1,27 @@
 /**
  * CATPatrol 雲端後端（Google Apps Script）
- * 部署步驟見同資料夾的 DEPLOY.md。首次請先於編輯器執行 setup() 授權並建立試算表／資料夾。
+ * 部署步驟見同資料夾的 DEPLOY.md。首次請先於編輯器執行 setup() 授權並建立試算表／資料夾；
+ * 之後更新程式若有新增欄位，也要再執行一次 setup() 補上標題列。
+ * App 不直接呼叫這裡：一律經 Cloudflare Worker 代轉，token 只存在 Worker 的 secrets。
  */
 
-const TOKEN = 'CHANGE_ME';               // ← 部署前改成自訂字串，並填入 App 設定頁
+const TOKEN = 'CHANGE_ME';               // ← 部署前改成自訂字串，並填入 Cloudflare Worker 的 API_TOKEN
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
+const RETIRED = '已撤下';                 // 被更換掉的相機，「設備」分頁的狀態欄
 
+// 欄位只能往最右邊加，不能插欄或改名（CATBase 也讀這份試算表）
 const HEADERS = {
   '專案': ['project_id', '專案名稱', '建立日期', '狀態'],
   '設備': ['device_id', 'project_id', 'QR碼內容', '經度', '緯度', '記憶卡編號', '電池類型', '電量%',
     '拍攝模式', '連拍張數', '感度', '間隔秒', '設定備註', '建立人員', '建立時間',
-    '最後巡檢時間', '最後巡檢人員', '持續運作', '最後備註', '狀態'],
+    '最後巡檢時間', '最後巡檢人員', '持續運作', '最後備註', '狀態',
+    '相機型號', '照片畫質', '影片畫質', '影片秒數', '工作時間'],
   '巡檢紀錄': ['record_id', '巡檢時間', 'project_id', 'device_id', '巡檢人員', '持續運作', '更換記憶卡',
     '新記憶卡編號', '取回記憶卡編號', '更換電池', '新電池類型', '電量%', '設定有變動', '新設定摘要',
-    '位置有變動', '經度', '緯度', '照片張數', '照片資料夾連結', '備註', '自訂欄位JSON', '上傳時間'],
+    '位置有變動', '經度', '緯度', '照片張數', '照片資料夾連結', '備註', '自訂欄位JSON', '上傳時間',
+    '更換相機', '新設備編號', '新相機型號'],
   '自訂欄位定義': ['project_id', '欄位名稱', '類型', '選項', '必填', '排序', 'field_id'],
   '照片索引': ['photo_id', 'record_id', 'device_id', '拍攝時間', 'Drive檔案連結', '檔名'],
 };
@@ -25,6 +31,7 @@ const D = {
   id: 0, projectId: 1, qrCode: 2, lng: 3, lat: 4, sdCard: 5, batteryType: 6, batteryPct: 7,
   mode: 8, burst: 9, sensitivity: 10, interval: 11, configNote: 12, createdBy: 13, createdAt: 14,
   lastPatrolAt: 15, lastInspector: 16, running: 17, lastNote: 18, status: 19,
+  cameraModel: 20, photoQuality: 21, videoQuality: 22, videoSec: 23, workHours: 24,
 };
 
 /* ════════ 進入點 ════════ */
@@ -44,7 +51,8 @@ function doPost(e) {
   try {
     lock.waitLock(30000);
     const body = JSON.parse(e.postData.contents);
-    if (body.token !== TOKEN) return json_({ ok: false, error: 'token 不正確' });
+    // Cloudflare Worker 把 token 放在網址參數（不必解析整包照片資料）；body.token 為舊版 App 相容
+    if ((e.parameter.token || body.token) !== TOKEN) return json_({ ok: false, error: 'token 不正確' });
 
     const handlers = {
       addProject: addProject_,
@@ -85,6 +93,7 @@ function bootstrap_() {
       id: r[D.id],
       projectId: r[D.projectId],
       qrCode: r[D.qrCode],
+      cameraModel: r[D.cameraModel],
       lng: numOrNull_(r[D.lng]),
       lat: numOrNull_(r[D.lat]),
       sdCard: r[D.sdCard],
@@ -92,9 +101,13 @@ function bootstrap_() {
       batteryPct: numOrNull_(r[D.batteryPct]),
       config: {
         mode: r[D.mode],
+        photoQuality: r[D.photoQuality],
         burst: numOrNull_(r[D.burst]),
+        videoQuality: r[D.videoQuality],
+        videoSec: numOrNull_(r[D.videoSec]),
         sensitivity: r[D.sensitivity],
         interval: numOrNull_(r[D.interval]),
+        workHours: r[D.workHours] || '全天',
         note: r[D.configNote],
       },
       createdBy: r[D.createdBy],
@@ -103,6 +116,7 @@ function bootstrap_() {
       lastInspector: r[D.lastInspector],
       running: r[D.running] !== false && String(r[D.running]).toUpperCase() !== 'FALSE',
       lastNote: r[D.lastNote],
+      retired: r[D.status] === RETIRED,
     })),
   };
 }
@@ -143,16 +157,13 @@ function addDevice_(body) {
   row[D.id] = d.id;
   row[D.projectId] = d.projectId;
   row[D.qrCode] = d.qrCode || d.id;
+  row[D.cameraModel] = d.cameraModel || '';
   row[D.lng] = d.lng;
   row[D.lat] = d.lat;
   row[D.sdCard] = d.sdCard;
   row[D.batteryType] = d.batteryType;
   row[D.batteryPct] = d.batteryPct;
-  row[D.mode] = cfg.mode;
-  row[D.burst] = cfg.burst;
-  row[D.sensitivity] = cfg.sensitivity;
-  row[D.interval] = cfg.interval;
-  row[D.configNote] = cfg.note || '';
+  writeConfig_(row, cfg);
   row[D.createdBy] = d.createdBy;
   row[D.createdAt] = d.createdAt;
   row[D.lastPatrolAt] = d.lastPatrolAt;
@@ -187,6 +198,7 @@ function addRecord_(body) {
     !!rec.locationChanged, rec.lng == null ? '' : rec.lng, rec.lat == null ? '' : rec.lat,
     (body.photos || []).length, folderUrl, rec.note || '',
     JSON.stringify(rec.customFields || {}), now_(),
+    !!rec.cameraSwapped, rec.newDeviceId || '', rec.newCameraModel || '',
   ]);
 
   applyRecordToDevice_(ss, rec);
@@ -201,28 +213,66 @@ function applyRecordToDevice_(ss, rec) {
 
   const width = HEADERS['設備'].length;
   const row = sheet.getRange(idx, 1, 1, width).getValues()[0];
-  if (cell_(row[D.lastPatrolAt]) > rec.patrolAt) return;
+  const stale = cell_(row[D.lastPatrolAt]) > rec.patrolAt;
+  if (stale && !rec.cameraSwapped) return;
 
-  row[D.lastPatrolAt] = rec.patrolAt;
-  row[D.lastInspector] = rec.inspector;
-  row[D.running] = !!rec.running;
+  if (!stale) {
+    row[D.lastPatrolAt] = rec.patrolAt;
+    row[D.lastInspector] = rec.inspector;
+    row[D.running] = !!rec.running;
+    row[D.lastNote] = rec.note || '';
+  }
+
+  if (rec.cameraSwapped) {
+    // 舊相機撤下（其餘欄位保留撤下當時的樣子）；新相機另起一列，接手位置、耗材與設定
+    const fresh = row.slice();
+    row[D.status] = RETIRED;
+    sheet.getRange(idx, 1, 1, width).setValues([row]);
+
+    fresh[D.id] = rec.newDeviceId;
+    fresh[D.qrCode] = rec.newDeviceId;
+    fresh[D.cameraModel] = rec.newCameraModel;
+    fresh[D.createdBy] = rec.inspector;
+    fresh[D.createdAt] = rec.patrolAt;
+    fresh[D.lastPatrolAt] = rec.patrolAt;
+    fresh[D.lastInspector] = rec.inspector;
+    fresh[D.running] = true;
+    fresh[D.lastNote] = rec.note || '';
+    applyChanges_(fresh, rec);
+    fresh[D.status] = calcStatus_(true, rec.batteryPct, rec.patrolAt);
+    const existing = findRowIndex_(sheet, rec.newDeviceId);
+    if (existing > 0) sheet.getRange(existing, 1, 1, width).setValues([fresh]);
+    else sheet.appendRow(fresh);
+    return;
+  }
+
+  applyChanges_(row, rec);
+  row[D.status] = calcStatus_(!!rec.running, rec.batteryPct, rec.patrolAt);
+  sheet.getRange(idx, 1, 1, width).setValues([row]);
+}
+
+/** 巡檢時的電量，以及有變動的記憶卡、電池、設定、位置 */
+function applyChanges_(row, rec) {
   row[D.batteryPct] = rec.batteryPct;
-  row[D.lastNote] = rec.note || '';
   if (rec.sdChanged) row[D.sdCard] = rec.sdNew;
   if (rec.batteryChanged) row[D.batteryType] = rec.batteryTypeNew;
-  if (rec.configChanged && rec.config) {
-    row[D.mode] = rec.config.mode;
-    row[D.burst] = rec.config.burst;
-    row[D.sensitivity] = rec.config.sensitivity;
-    row[D.interval] = rec.config.interval;
-    row[D.configNote] = rec.config.note || '';
-  }
+  if (rec.configChanged && rec.config) writeConfig_(row, rec.config);
   if (rec.locationChanged) {
     row[D.lng] = rec.lng;
     row[D.lat] = rec.lat;
   }
-  row[D.status] = calcStatus_(!!rec.running, rec.batteryPct, rec.patrolAt);
-  sheet.getRange(idx, 1, 1, width).setValues([row]);
+}
+
+function writeConfig_(row, cfg) {
+  row[D.mode] = cfg.mode;
+  row[D.photoQuality] = cfg.photoQuality || '';
+  row[D.burst] = blank_(cfg.burst);
+  row[D.videoQuality] = cfg.videoQuality || '';
+  row[D.videoSec] = blank_(cfg.videoSec);
+  row[D.sensitivity] = cfg.sensitivity;
+  row[D.interval] = cfg.interval;
+  row[D.workHours] = cfg.workHours || '全天';
+  row[D.configNote] = cfg.note || '';
 }
 
 /* ════════ 照片 ════════ */
@@ -313,7 +363,7 @@ function findRow_(sheet, value) {
 function calcStatus_(running, batteryPct, lastPatrolAt) {
   if (!running) return '異常';
   if (daysSince_(lastPatrolAt) > STALE_DAYS) return '待巡檢';
-  if (batteryPct !== '' && batteryPct != null && Number(batteryPct) <= 40) return '電量低';
+  if (batteryPct !== '' && batteryPct != null && Number(batteryPct) <= 25) return '電量低';
   return '正常';
 }
 
@@ -323,9 +373,16 @@ function daysSince_(stamp) {
   return isNaN(t) ? Number.MAX_VALUE : (Date.now() - t) / 86400000;
 }
 
+/** 格式與前端 cam-config.js 的 configSummary 相同 */
 function configSummary_(cfg) {
   if (!cfg) return '';
-  return cfg.mode + ' · 連拍' + cfg.burst + ' · 感度' + cfg.sensitivity + ' · 間隔' + cfg.interval + 's';
+  const parts = [cfg.mode];
+  if (cfg.mode !== '影片') parts.push('照片' + (cfg.photoQuality || '—'), '連拍' + blank_(cfg.burst));
+  if (cfg.mode === '影片' || cfg.mode === '照片+影片') {
+    parts.push('影片' + (cfg.videoQuality || '—') + ' ' + blank_(cfg.videoSec) + '秒');
+  }
+  parts.push('感度' + cfg.sensitivity, '間隔' + cfg.interval + 's', '工作時間' + (cfg.workHours || '全天'));
+  return parts.join(' · ');
 }
 
 function cell_(v) {
@@ -339,6 +396,7 @@ function now_() {
 }
 
 const numOrNull_ = v => (v === '' || v == null ? null : Number(v));
+const blank_ = v => (v == null ? '' : v);
 const pad2_ = n => (n < 10 ? '0' + n : String(n));
 
 /* ════════ 首次設定 ════════ */

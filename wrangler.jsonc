@@ -1,0 +1,23 @@
+// Cloudflare Workers 設定：GitHub push 到 main 後由 Workers Builds 自動部署。
+// public/ 是網站本身；/api/* 先經 worker/index.js 驗證登入，再代轉到 Apps Script。
+// 機密不放這裡，在 Cloudflare 後台 Worker → Settings → Variables and Secrets 以「Secret」新增：
+//   APPS_SCRIPT_URL  Apps Script 網頁應用程式網址（…/exec）
+//   API_TOKEN        與 code.gs 的 TOKEN 相同
+{
+  "name": "catpatrol",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  // 預覽網址不在 Access 保護範圍內，關掉
+  "preview_urls": false,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    // Cloudflare Access 的團隊網域與應用程式 AUD（公開資訊，用來驗證登入憑證）
+    "ACCESS_TEAM_DOMAIN": "https://falling-brook-5f0c.cloudflareaccess.com",
+    "ACCESS_AUD": "fac4ca6cf873564cf5e1858d56eb9ffb75a0a3572a78b042b3504f38165e4da4"
+  }
+}

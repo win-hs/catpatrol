@@ -2,20 +2,21 @@ import { initMap, renderDevices, resizeMap } from './map.js';
 import * as store from './store.js';
 import * as form from './form.js';
 import * as camera from './camera.js';
-import * as qr from './qr.js';
 import * as sync from './sync.js';
 import * as api from './api.js';
+import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
 
 const $ = id => document.getElementById(id);
 const screens = $('screens');
 
 const addPhotos = camera.photoGrid($('add-photos'));
 const patrolPhotos = camera.photoGrid($('pt-photos'));
+const addCfg = configForm('add');
+const ptCfg = configForm('pt');
 
 /* ═══════════ 導覽 ═══════════ */
 
 export function go(screenId) {
-  closeAllScanners();
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === screenId));
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.screen === screenId));
   screens.scrollTop = 0;
@@ -31,7 +32,6 @@ document.querySelectorAll('.nav button').forEach(btn => {
 
 /* ═══════════ 共用 UI 行為 ═══════════ */
 
-const segValue = el => el.querySelector('button.on')?.dataset.value ?? '';
 const setSeg = (el, value) => el.querySelectorAll('button')
   .forEach(b => b.classList.toggle('on', b.dataset.value === value));
 
@@ -50,77 +50,8 @@ document.addEventListener('click', e => {
   if (segBtn) {
     segBtn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === segBtn));
     if (segBtn.parentElement.id === 'upload-rule') store.settings.uploadRule = segBtn.dataset.value;
-    return;
   }
-
-  const scanBtn = e.target.closest('[data-toggle-scan]');
-  if (scanBtn) toggleScanner(scanBtn);
 });
-
-/* ═══════════ QR 掃描 ═══════════ */
-
-const setScanLabel = (btn, open) => {
-  const { labelOn, labelOff } = btn.dataset;
-  if (labelOn && labelOff) btn.textContent = open ? labelOn : labelOff;
-};
-
-async function toggleScanner(btn) {
-  const box = document.querySelector(btn.dataset.toggleScan);
-  const opening = box.hidden;
-  box.hidden = !opening;
-  setScanLabel(btn, opening);
-
-  if (!opening) return qr.stopScan();
-
-  const msg = $(btn.dataset.msg);
-  msg.classList.remove('err');
-  await qr.startScan(
-    btn.dataset.scanner,
-    code => handleDecode(btn, code),
-    err => {
-      msg.textContent = `無法開啟相機：${err?.message || err}。可改用下方欄位手動輸入。`;
-      msg.classList.add('err');
-    }
-  );
-}
-
-function closeAllScanners() {
-  qr.stopScan();
-  document.querySelectorAll('[data-toggle-scan]').forEach(btn => {
-    document.querySelector(btn.dataset.toggleScan).hidden = true;
-    setScanLabel(btn, false);
-  });
-}
-
-async function handleDecode(btn, code) {
-  const scanned = code.trim();
-  document.querySelector(btn.dataset.toggleScan).hidden = true;
-  setScanLabel(btn, false);
-  await qr.stopScan();
-
-  if (btn.dataset.scanner === 'add-scanner') {
-    $('add-device-id').value = scanned;
-    return;
-  }
-
-  const device = await store.findDeviceByCode(scanned);
-  if (!device) {
-    if (confirm(`查無設備「${scanned}」，要新增這台設備嗎？`)) {
-      go('scr-add');
-      $('add-device-id').value = scanned;
-    }
-    return;
-  }
-
-  // 掃到其他專案的設備時自動切換專案
-  if (device.projectId !== store.settings.projectId) {
-    store.settings.projectId = device.projectId;
-    await renderProjectSelects();
-    await renderPatrol();
-  }
-  $('patrol-device').value = device.id;
-  await loadPatrolDevice(device.id);
-}
 
 // 以 form 的 submit 取代 dialog 的 close 事件：close 在部分 WebView 不觸發
 function openDialog(dialogId) {
@@ -238,16 +169,22 @@ function refreshAddMeta() {
   $('add-created-at').value = store.stamp();
 }
 
+$('add-model').innerHTML = MODEL_OPTIONS;
+$('add-model').addEventListener('change', e => addCfg.setModel(e.target.value));
+addCfg.setModel('');
+
 $('add-gps').addEventListener('click', e => fillGps($('add-lng'), $('add-lat'), e.target));
 
 $('add-save').addEventListener('click', async () => {
   const scope = $('scr-add');
   form.clearErrors(scope);
 
-  let ok = form.require($('add-device-id'), '請輸入或掃描設備編號');
+  let ok = form.require($('add-device-id'), '請輸入設備編號');
+  ok = form.require($('add-model'), '請選擇相機型號') && ok;
   ok = form.require($('add-sd'), '請輸入記憶卡編號') && ok;
   ok = form.require($('add-lng'), '請輸入經度或按 GPS 定位') && ok;
   ok = form.require($('add-lat'), '請輸入緯度或按 GPS 定位') && ok;
+  ok = addCfg.validate() && ok;
   if (!$('add-project').value) { alert('請先建立專案'); ok = false; }
   if (!ok) return;
 
@@ -263,23 +200,18 @@ $('add-save').addEventListener('click', async () => {
     id,
     projectId: $('add-project').value,
     qrCode: id,
+    cameraModel: $('add-model').value,
     lng: Number($('add-lng').value),
     lat: Number($('add-lat').value),
     sdCard: $('add-sd').value.trim(),
     batteryType: $('add-battery-type').value,
     batteryPct: Number($('add-battery-pct').value),
-    config: {
-      mode: segValue($('add-mode')),
-      burst: Number($('add-burst').value),
-      sensitivity: $('add-sens').value,
-      interval: Number($('add-interval').value),
-      note: $('add-config-note').value.trim(),
-    },
+    config: addCfg.read(),
   }, photoIds);
 
   addPhotos.take();
   ['add-device-id', 'add-sd', 'add-lng', 'add-lat', 'add-config-note'].forEach(k => { $(k).value = ''; });
-  $('add-battery-pct').value = 100;
+  $('add-battery-pct').value = '100';
   await updateSyncChip();
   go('scr-home');
   syncInBackground();
@@ -307,34 +239,33 @@ async function loadPatrolDevice(deviceId) {
   const device = await store.getDevice(deviceId);
   if (!device) return;
 
-  const cfg = device.config || {};
   $('last-title').textContent =
     `📋 上次巡檢狀態（${store.dateOnly(device.lastPatrolAt)} · ${device.lastInspector || '—'}）`;
   $('last-body').innerHTML = [
-    ['運作狀態', device.running === false ? '⛔ 停止運作' : '✅ 持續運作'],
+    ['運作狀態', device.running === false ? '⛔ 相機中斷' : '✅ 正常運作'],
+    ['相機型號', device.cameraModel || '—'],
     ['記憶卡', device.sdCard || '—'],
     ['電池', `${device.batteryType || '—'} · ${device.batteryPct ?? '—'}%`],
-    ['設定', `${cfg.mode || '—'} · 連拍${cfg.burst ?? '—'} · 感度${cfg.sensitivity || '—'} · 間隔${cfg.interval ?? '—'}s`],
+    ['設定', configSummary(device.config)],
     ['座標', `${device.lng ?? '—'}, ${device.lat ?? '—'}`],
     ['備註', device.lastNote || '—'],
   ].map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
 
   $('patrol-meta').textContent = `${store.stamp()} · ${store.settings.inspector}`;
   $('pt-sd-retrieved').textContent = `取回卡：${device.sdCard || '—'}（自動記錄）`;
+  $('pt-swap-note').textContent = `${device.id} 會標為「已撤下」，新相機沿用此處的位置與設定。`;
 
-  $('pt-running').classList.add('on');
-  ['pt-sd-changed', 'pt-bat-changed', 'pt-cfg-changed', 'pt-loc-changed'].forEach(id => $(id).classList.remove('on'));
-  ['sd-new', 'bat-new', 'cfg-new', 'loc-new'].forEach(id => { $(id).hidden = true; });
+  ['pt-down', 'pt-swap', 'pt-sd-changed', 'pt-bat-changed', 'pt-cfg-changed', 'pt-loc-changed']
+    .forEach(id => $(id).classList.remove('on'));
+  ['swap-new', 'sd-new', 'bat-new', 'cfg-new', 'loc-new'].forEach(id => { $(id).hidden = true; });
 
+  $('pt-new-id').value = '';
+  $('pt-new-model').value = '';
   $('pt-sd-new').value = '';
   $('pt-battery-pct').value = '';
   $('pt-note').value = '';
   $('pt-bat-type').value = device.batteryType || '鹼性';
-  setSeg($('pt-mode'), cfg.mode || '照片');
-  $('pt-burst').value = cfg.burst ?? '';
-  $('pt-sens').value = cfg.sensitivity || '中';
-  $('pt-interval').value = cfg.interval ?? '';
-  $('pt-config-note').value = cfg.note || '';
+  ptCfg.fill(device.config, device.cameraModel);
   $('pt-lng').value = '';
   $('pt-lat').value = '';
 
@@ -347,17 +278,48 @@ async function loadPatrolDevice(deviceId) {
 $('patrol-device').addEventListener('change', e => loadPatrolDevice(e.target.value));
 $('pt-gps').addEventListener('click', e => fillGps($('pt-lng'), $('pt-lat'), e.target));
 
+$('pt-new-model').innerHTML = MODEL_OPTIONS;
+
+/** 換成不同型號時畫質選項不同，打開「設定有變動」讓巡檢員重新確認新相機的設定 */
+function openConfigForModel(model) {
+  ptCfg.setModel(model);
+  $('pt-cfg-changed').classList.add('on');
+  $('cfg-new').hidden = false;
+}
+
+$('pt-new-model').addEventListener('change', async e => {
+  const device = await store.getDevice($('patrol-device').value);
+  if (e.target.value && e.target.value !== device.cameraModel) openConfigForModel(e.target.value);
+});
+
 $('pt-save').addEventListener('click', async () => {
   const scope = $('scr-patrol');
   form.clearErrors(scope);
 
   const deviceId = $('patrol-device').value;
   const device = await store.getDevice(deviceId);
+  const swapped = $('pt-swap').classList.contains('on');
+  const newId = $('pt-new-id').value.trim();
+  const newModel = $('pt-new-model').value;
   const sdChanged = $('pt-sd-changed').classList.contains('on');
   const locChanged = $('pt-loc-changed').classList.contains('on');
 
-  let ok = form.require($('pt-battery-pct'), '請填寫目前電量');
+  const model = swapped && newModel ? newModel : device.cameraModel;
+  ptCfg.setModel(model); // 選了新型號又關掉「更換相機」時，退回原型號的選項
+  if (model !== device.cameraModel) openConfigForModel(model);
+  const cfgChanged = $('pt-cfg-changed').classList.contains('on');
+
+  let ok = form.require($('pt-battery-pct'), '請選擇目前電量');
+  if (swapped) {
+    ok = form.require($('pt-new-id'), '請輸入新相機編號') && ok;
+    ok = form.require($('pt-new-model'), '請選擇新相機型號') && ok;
+    if (newId && (newId === deviceId || await store.getDevice(newId))) {
+      form.markError($('pt-new-id'), '此設備編號已存在');
+      ok = false;
+    }
+  }
   if (sdChanged) ok = form.require($('pt-sd-new'), '請輸入新記憶卡編號') && ok;
+  if (cfgChanged) ok = ptCfg.validate() && ok;
   if (locChanged) {
     ok = form.require($('pt-lng'), '請輸入經度或按 GPS 定位') && ok;
     ok = form.require($('pt-lat'), '請輸入緯度或按 GPS 定位') && ok;
@@ -365,14 +327,16 @@ $('pt-save').addEventListener('click', async () => {
   ok = form.validateCustomFields($('pt-custom'), patrolDefs) && ok;
   if (!ok) return;
 
-  const cfgChanged = $('pt-cfg-changed').classList.contains('on');
   const record = {
     recordId: store.makeRecordId(),
     patrolAt: store.stamp(),
     projectId: device.projectId,
     deviceId,
     inspector: store.settings.inspector,
-    running: $('pt-running').classList.contains('on'),
+    running: !$('pt-down').classList.contains('on'),
+    cameraSwapped: swapped,
+    newDeviceId: swapped ? newId : '',
+    newCameraModel: swapped ? newModel : '',
     sdChanged,
     sdNew: sdChanged ? $('pt-sd-new').value.trim() : '',
     sdRetrieved: sdChanged ? (device.sdCard || '') : '',
@@ -380,13 +344,7 @@ $('pt-save').addEventListener('click', async () => {
     batteryTypeNew: $('pt-bat-changed').classList.contains('on') ? $('pt-bat-type').value : '',
     batteryPct: Number($('pt-battery-pct').value),
     configChanged: cfgChanged,
-    config: cfgChanged ? {
-      mode: segValue($('pt-mode')),
-      burst: Number($('pt-burst').value),
-      sensitivity: $('pt-sens').value,
-      interval: Number($('pt-interval').value),
-      note: $('pt-config-note').value.trim(),
-    } : null,
+    config: cfgChanged ? ptCfg.read() : null,
     locationChanged: locChanged,
     lng: locChanged ? Number($('pt-lng').value) : null,
     lat: locChanged ? Number($('pt-lat').value) : null,
@@ -413,9 +371,16 @@ const QUEUE_ICON = {
 };
 const STATUS_LABEL = { pending: ['待上傳', 'wait'], uploading: ['上傳中', 'up'], done: ['✓ 已上傳', 'done'], error: ['上傳失敗', 'err'] };
 
+// Cloudflare Access 登入過期時上傳與拉資料都會失敗，需要使用者重新登入
+let loginExpired = false;
+
+function noteSyncError(err) {
+  if (err instanceof api.LoginExpiredError) loginExpired = true;
+}
+
 function netHintText() {
-  if (!api.isConfigured()) return '⚙️ 尚未設定雲端 API 網址 — 紀錄會先存在手機，設定後即可上傳。';
   if (!navigator.onLine) return '📡 目前離線 — 紀錄已安全存在手機，連上網路後依下方規則上傳。';
+  if (loginExpired) return '🔒 登入已過期 — 紀錄仍安全存在手機，請按下方「重新登入」後再上傳。';
   if (store.settings.uploadRule === 'manual') return '📶 目前在線 — 上傳規則為「手動」，請按下方按鈕上傳。';
   if (store.settings.uploadRule === 'wifi' && !sync.canDetectWifi()) {
     return '📶 目前在線 — 此裝置無法判斷是否為 WiFi，「僅 WiFi」模式下會視為可上傳。';
@@ -425,6 +390,7 @@ function netHintText() {
 
 async function renderSync() {
   $('net-hint').textContent = netHintText();
+  $('relogin').hidden = !(loginExpired && navigator.onLine);
 
   const queue = (await store.getQueue()).sort((a, b) => (a.createdMs ?? 0) - (b.createdMs ?? 0));
   $('queue-list').innerHTML = queue.length
@@ -441,8 +407,6 @@ async function renderSync() {
 
   setSeg($('upload-rule'), store.settings.uploadRule);
   $('inspector-input').value = store.settings.inspector;
-  $('api-url').value = store.settings.apiUrl;
-  $('api-token').value = store.settings.apiToken;
   await renderFieldDefs();
 }
 
@@ -467,26 +431,9 @@ $('inspector-save').addEventListener('click', () => {
   alert(`已儲存：${name}`);
 });
 
-$('api-save').addEventListener('click', async e => {
-  store.settings.apiUrl = $('api-url').value.trim();
-  store.settings.apiToken = $('api-token').value.trim();
-  if (!store.settings.apiUrl) return alert('請貼上 Apps Script 部署網址');
-
-  const btn = e.target;
-  btn.textContent = '測試連線中…';
-  btn.disabled = true;
-  try {
-    await sync.pull();
-    await renderHome();
-    await renderSync();
-    alert('連線成功，已取得雲端資料。');
-    syncInBackground({ force: true });
-  } catch (err) {
-    alert(`連線失敗：${err.message}`);
-  } finally {
-    btn.textContent = '儲存並測試連線';
-    btn.disabled = false;
-  }
+// 帶一個每次不同的參數，Service Worker 的快取對不到，請求才會真的送到 Cloudflare 而被導去登入頁
+$('relogin').addEventListener('click', () => {
+  location.href = `./?relogin=${Date.now()}`;
 });
 
 $('fields-list').addEventListener('click', async e => {
@@ -531,11 +478,11 @@ $('dlg-field-type').addEventListener('change', e => {
 });
 
 $('upload-now').addEventListener('click', async e => {
-  if (!api.isConfigured()) return alert('請先在下方設定雲端 API 網址');
   const btn = e.target;
   btn.textContent = '上傳中…';
   btn.disabled = true;
   const result = await sync.syncNow({ force: true });
+  noteSyncResult(result);
   btn.textContent = '立即全部上傳';
   btn.disabled = false;
 
@@ -571,9 +518,15 @@ async function updateSyncChip() {
     : `待上傳 ${pending.length} 筆`;
 }
 
+function noteSyncResult(result) {
+  if (result.loginExpired) loginExpired = true;
+  else if (result.uploaded) loginExpired = false;
+}
+
 /** 背景上傳：不擋 UI，完成後刷新畫面 */
 function syncInBackground(options) {
-  sync.syncNow(options).then(async () => {
+  sync.syncNow(options).then(async result => {
+    noteSyncResult(result);
     await updateSyncChip();
     if (document.querySelector('.screen.active').id === 'scr-sync') await renderSync();
   });
@@ -602,10 +555,16 @@ try {
   alert(`無法開啟本機資料庫：${err.message}\n\n請關閉其他 CATPatrol 分頁後重新開啟本 App。`);
 }
 
+// 重新登入回來：拿掉網址上的 relogin 參數，並立刻補傳（不等失敗重試的退避時間）
+const relogin = location.search.includes('relogin');
+if (relogin) history.replaceState(null, '', './');
+
 // 開啟時先拉雲端最新資料，再送出待上傳佇列
-if (api.isConfigured() && navigator.onLine) {
-  sync.pull().then(renderHome).catch(() => {});
-  syncInBackground();
+if (navigator.onLine) {
+  sync.pull()
+    .then(() => { loginExpired = false; return renderHome(); })
+    .catch(noteSyncError);
+  syncInBackground(relogin ? { force: true } : undefined);
 }
 
 if ('serviceWorker' in navigator) {

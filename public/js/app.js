@@ -7,7 +7,19 @@ import * as api from './api.js';
 import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
 
 // 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v0.1';
+const APP_VERSION = 'v0.2';
+// 這版網頁需要的 Apps Script 版本（code.gs 的 VERSION）；雲端比這舊就在首頁提醒重新部署
+const BACKEND_NEEDED = 'v0.2';
+let backendVersion = '';
+
+const versionParts = v => String(v || '0').replace(/^v/, '').split('.').map(Number);
+const olderThan = (a, b) => {
+  const [x, y] = [versionParts(a), versionParts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
+  }
+  return false;
+};
 
 const $ = id => document.getElementById(id);
 const { esc } = form;
@@ -352,12 +364,12 @@ async function loadPatrolDevice(deviceId) {
   if (!device) return;
 
   $('last-title').textContent =
-    `📋 上次巡檢狀態（${store.dateOnly(device.lastPatrolAt)} · ${device.lastInspector || '—'}）`;
+    `📋 上次巡檢狀態（${device.lastPatrolAt || '—'} · ${device.lastInspector || '—'}）`;
   $('last-body').innerHTML = [
     ['運作狀態', device.running === false ? '⛔ 相機故障或沒電' : '✅ 正常運作'],
     ['樣點 / 序號', `${device.stationId || '—'} / ${device.id}`],
     ['相機型號', device.cameraModel || '—'],
-    ['記憶卡', device.sdCard || '—'],
+    ['記憶卡', `${device.sdCard || '—'}${device.prevSdCard ? `（上一張 ${device.prevSdCard}）` : ''}`],
     ['電池', `${device.batteryType || '—'} · ${device.batteryPct ?? '—'}%`],
     ['設定', configSummary(device.config)],
     ['座標', form.formatCoord(device.lat, device.lng)],
@@ -405,31 +417,10 @@ async function loadPatrolDevice(deviceId) {
   patrolTouched = false;
 }
 
-let photoToken = 0;
-
-/** 比對卡左邊：上次的照片＋醒目的樣點編號；沒照片（或離線又沒快取過）就只顯示大字樣點編號 */
+/** 比對卡左邊：醒目的大字樣點編號（上次的照片先不顯示，後端 /api/photo 保留著） */
 function renderLastVisual(device) {
-  const token = ++photoToken;
-  const box = $('last-visual');
-  const img = $('last-photo');
   $('last-station').textContent = store.stationLabel(device);
-  img.hidden = true;
-  img.removeAttribute('src');
-  box.classList.remove('has-photo');
-  if (!device.lastPhotoId) return;
-  api.photo(device.lastPhotoId).then(url => {
-    if (token !== photoToken) return; // 已經換到別台
-    img.src = url;
-    img.hidden = false;
-    box.classList.add('has-photo');
-  }).catch(() => {});
 }
-
-$('last-photo').addEventListener('click', () => {
-  $('photo-view-img').src = $('last-photo').src;
-  $('photo-view').hidden = false;
-});
-$('photo-view').addEventListener('click', () => { $('photo-view').hidden = true; });
 
 /** 修改模式：把原紀錄的內容填回表單 */
 function fillFromRecord(p, device) {
@@ -639,7 +630,8 @@ async function renderSync() {
   const me = store.settings.me;
   $('me-text').textContent = me.email
     ? `${me.name || '（白名單未設定姓名）'}　${me.email}`
-    : '尚未取得登入身分（連上網路開啟一次即可）';
+    : '尚未取得登入身分（連上網路開啟一次即可；一直這樣代表雲端 Apps Script 還是舊版）';
+  $('versions').textContent = `網頁 ${APP_VERSION} · 雲端程式 ${backendVersion || '（尚未連線或舊版）'}`;
   await renderFieldDefs();
 }
 
@@ -778,29 +770,24 @@ async function refreshFromCloud() {
   if (!navigator.onLine) return setCloudHint('📡 離線中，顯示的是這台裝置上的資料', true);
   setCloudHint('☁️ 正在取得雲端最新資料…');
   try {
-    await sync.pull();
+    const data = await sync.pull();
     loginExpired = false;
     lastPullAt = Date.now();
-    setCloudHint(`☁️ 已與雲端同步（${store.stamp().slice(11)}）`);
+    backendVersion = data.version || '';
+    // Apps Script 只存檔沒「部署新版本」時，網址上跑的還是舊程式：新欄位（例如樣點編號）不會出現
+    if (!backendVersion || olderThan(backendVersion, BACKEND_NEEDED)) {
+      setCloudHint(`⚠️ 雲端的 Apps Script 還是舊版（${backendVersion || 'v0.1 以前'}，需要 ${BACKEND_NEEDED}）`
+        + '，樣點編號等新功能不會生效。請到 Apps Script「管理部署作業」把現有的部署改成新版本。', true);
+    } else {
+      setCloudHint(`☁️ 已與雲端同步（${store.stamp().slice(11)}）`);
+    }
     await renderHome();
-    prefetchPhotos();
+    if (document.querySelector('.screen.active').id === 'scr-sync') await renderSync();
   } catch (err) {
     noteSyncError(err);
     setCloudHint(err instanceof api.LoginExpiredError
       ? '🔒 登入已過期，顯示的是這台裝置上的資料 — 請到「同步」分頁按「重新登入」'
       : `⚠️ 無法取得雲端資料（${err.message}），顯示的是這台裝置上的資料`, true);
-  }
-}
-
-/**
- * 不是行動網路時，先把目前專案各樣點的上次照片抓下來（Service Worker 快取），上山離線也看得到。
- * 一張約 400KB，行動網路下不抓，等巡檢時看到哪台才抓哪台。
- */
-async function prefetchPhotos() {
-  if (navigator.connection?.type === 'cellular') return;
-  const devices = await store.getDevices(store.settings.projectId);
-  for (const d of devices.filter(x => x.lastPhotoId).slice(0, 60)) {
-    try { await api.photo(d.lastPhotoId); } catch { return; }
   }
 }
 

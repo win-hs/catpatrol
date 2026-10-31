@@ -177,9 +177,8 @@
       <div class="card last-card">
         <h3 id="last-title">📋 上次巡檢狀態</h3>
         <div class="last-wrap">
-          <!-- 上次的照片＋醒目的樣點編號；沒照片時只顯示大字樣點編號 -->
-          <div class="last-visual" id="last-visual">
-            <img id="last-photo" alt="上次的照片" hidden>
+          <!-- 醒目的大字樣點編號（上次的照片先不顯示） -->
+          <div class="last-visual">
             <span class="last-station" id="last-station"></span>
           </div>
           <table class="cmp"><tbody id="last-body"></tbody></table>
@@ -346,6 +345,7 @@
       <h3>登入帳號</h3>
       <p id="me-text" style="font-size:14px;"></p>
       <p class="sec-note" style="margin:8px 0 0;">紀錄上的巡檢人員自動用這個帳號，電腦和手機都一樣。姓名由管理員在試算表「白名單」分頁設定，沒設定時顯示 email。</p>
+      <p class="sec-note" id="versions" style="margin:8px 0 0;"></p>
     </div>
 
     <div class="card">
@@ -364,9 +364,6 @@
   <button data-screen="scr-patrol"><span class="ic">✅</span>巡檢</button>
   <button data-screen="scr-sync"><span class="ic">☁️</span>同步</button>
 </nav>
-
-<!-- 點上次照片放大看，再點一下關閉 -->
-<div class="photo-view" id="photo-view" hidden><img id="photo-view-img" alt=""></div>
 
 <!-- ═══════════ dialogs ═══════════ -->
 

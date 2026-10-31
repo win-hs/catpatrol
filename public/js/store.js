@@ -155,7 +155,10 @@ export async function addRecord(record, photoIds = [], queueMeta = {}, type = 'a
     batteryPct: record.batteryPct,
     lastNote: record.note,
   };
-  if (record.sdChanged) updated.sdCard = record.sdNew;
+  if (record.sdChanged) {
+    updated.prevSdCard = device.sdCard; // 取回的那張變成「上一張」（雲端由巡檢紀錄推出同樣的值）
+    updated.sdCard = record.sdNew;
+  }
   if (record.batteryChanged) updated.batteryType = record.batteryTypeNew;
   if (record.configChanged) updated.config = record.config;
   if (record.locationChanged) { updated.lng = record.lng; updated.lat = record.lat; }

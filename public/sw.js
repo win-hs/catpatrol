@@ -1,11 +1,9 @@
 // ⚠️ 每次改動 shell 檔案（html/css/js）後都必須改這個版本號（js/app.js 的 APP_VERSION 一起改），
 // 否則已安裝的裝置會一直吃舊快取，更新永遠送不出去。
-const VERSION = 'v0.1';
+const VERSION = 'v0.2';
 const SHELL_CACHE = `catpatrol-shell-${VERSION}`;
 const TILE_CACHE = 'catpatrol-tiles';
 const TILE_LIMIT = 500;
-const PHOTO_CACHE = 'catpatrol-photos';
-const PHOTO_LIMIT = 80;
 
 const SHELL = [
   '.',
@@ -36,7 +34,8 @@ self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(
-      names.filter(n => n.startsWith('catpatrol-shell-') && n !== SHELL_CACHE)
+      // catpatrol-photos：v0.1 的上次照片快取，照片先不顯示了，順手清掉
+      names.filter(n => (n.startsWith('catpatrol-shell-') && n !== SHELL_CACHE) || n === 'catpatrol-photos')
         .map(n => caches.delete(n))
     );
     await self.clients.claim();
@@ -56,24 +55,7 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(request.url);
 
-  // 上次巡檢的照片：Drive 檔案不會變，快取優先，山上離線時看得到之前看過（或預先抓過）的
-  if (url.origin === self.location.origin && url.pathname === '/api/photo') {
-    event.respondWith((async () => {
-      const cache = await caches.open(PHOTO_CACHE);
-      const hit = await cache.match(request);
-      if (hit) return hit;
-      const res = await fetch(request);
-      // 只快取成功的；登入過期的轉址或 {ok:false} 不能存
-      if (res.ok && res.type !== 'opaqueredirect') {
-        const body = await res.clone().json().catch(() => null);
-        if (body?.ok) await cache.put(request, res.clone()).then(() => trimCache(cache, PHOTO_LIMIT));
-      }
-      return res;
-    })());
-    return;
-  }
-
-  // 其他雲端 API（同網域 Worker 代轉）：一律走網路，失敗交給上傳佇列處理，絕不快取
+  // 雲端 API（同網域 Worker 代轉）：一律走網路，失敗交給上傳佇列處理，絕不快取
   if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
 
   // OSM 圖磚：先給快取、背景更新，巡檢前看過的區域離線仍可見

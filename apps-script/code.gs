@@ -6,6 +6,7 @@
  */
 
 const TOKEN = 'CHANGE_ME';               // ← 部署前改成自訂字串，並填入 Cloudflare Worker 的 API_TOKEN
+const VERSION = 'v0.2';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
@@ -86,8 +87,16 @@ function bootstrap_(user) {
     const id = driveFileId_(r[4]);
     if (id) lastPhoto[r[2]] = id;
   });
+  // 上一張記憶卡＝最近一次換卡時取回的那張；換機時換上的新相機也沿用
+  const prevSd = {};
+  rows_(ss, '巡檢紀錄').forEach(r => {
+    if (!isTrue_(r[6])) return;
+    prevSd[r[3]] = r[8];
+    if (isTrue_(r[22]) && r[23]) prevSd[r[23]] = r[8];
+  });
   return {
     ok: true,
+    version: VERSION,
     me: { email: user || '', name: memberName_(ss, user) },
     projects: rows_(ss, '專案').map(r => ({
       id: r[0], name: r[1], createdAt: cell_(r[2]), status: r[3],
@@ -110,6 +119,7 @@ function bootstrap_(user) {
       lng: numOrNull_(r[D.lng]),
       lat: numOrNull_(r[D.lat]),
       sdCard: r[D.sdCard],
+      prevSdCard: prevSd[r[D.id]] || '',
       batteryType: r[D.batteryType],
       batteryPct: numOrNull_(r[D.batteryPct]),
       config: {
@@ -489,6 +499,7 @@ function now_() {
 }
 
 const numOrNull_ = v => (v === '' || v == null ? null : Number(v));
+const isTrue_ = v => v === true || String(v).toUpperCase() === 'TRUE';
 const blank_ = v => (v == null ? '' : v);
 const pad2_ = n => (n < 10 ? '0' + n : String(n));
 

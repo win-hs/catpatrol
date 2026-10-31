@@ -148,6 +148,7 @@ check('D indices match header names',
 // ── 白名單姓名（email 不分大小寫）
 ss.getSheetByName('白名單').appendRow(['Field@X.org', '王小明', '2026-10-31', '']);
 check('me.name from 白名單, case-insensitive', boot('field@x.org').me.name === '王小明');
+check('bootstrap reports backend version', /^v\d+\.\d+$/.test(boot().version), boot().version);
 check('unknown email: name blank', boot('nobody@x.org').me.name === '');
 
 check('wrong token rejected', post({ action: 'addProject', payload: { id: 'P1', name: 'x' } }, { token: 'bad' }).error === 'token 不正確');
@@ -177,6 +178,8 @@ const newRow = sheet('設備').find(r => r[0] === 'CAM-9');
 check('old camera 已撤下', oldRow[19] === '已撤下');
 check('new camera keeps 樣點編號 + new SD', newRow && newRow[25] === 'S-01' && newRow[5] === 'Wv7' && newRow[21] === '46MP', JSON.stringify(newRow));
 check('bootstrap: new device carries stationId', boot().devices.find(d => d.id === 'CAM-9').stationId === 'S-01');
+check('prevSdCard: swap with SD change → new camera\'s previous card is the retrieved one',
+  boot().devices.find(d => d.id === 'CAM-9').prevSdCard === '野12' && boot().devices.find(d => d.id === 'CAM-1').prevSdCard === '野12');
 
 // ── 上次照片：bootstrap 給最新一張的檔案 id，photo 只給照片索引裡有的檔案
 post({ action: 'addRecord', photos: [{ name: 'a.jpg', dataBase64: Buffer.from('first').toString('base64') }],

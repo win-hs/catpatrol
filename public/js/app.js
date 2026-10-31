@@ -6,6 +6,9 @@ import * as sync from './sync.js';
 import * as api from './api.js';
 import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
 
+// 與 sw.js 的 VERSION 一起改：同步分頁顯示，用來確認手機上是不是已經換成新版
+const APP_VERSION = 'v9';
+
 const $ = id => document.getElementById(id);
 const { esc } = form;
 const screens = $('screens');
@@ -141,10 +144,12 @@ async function renderHome() {
 
   list.innerHTML = devices.map(d => {
     const status = store.deviceStatus(d);
-    const serial = d.stationId ? `序號 ${esc(d.id)} · ` : '';
+    const camera = `序號 ${esc(d.id)}${d.cameraModel ? ` · ${esc(d.cameraModel)}` : ''}`;
+    const memo = d.lastNote ? `<small class="memo">📝 ${esc(d.lastNote)}</small>` : '';
     return `<div class="dev" data-device="${esc(d.id)}">
       <div class="icon">📷</div>
-      <div class="info"><b>${esc(store.stationLabel(d))}</b><small>${serial}${esc(store.deviceSummary(d))}</small></div>
+      <div class="info"><b>${esc(store.stationLabel(d))}</b><small>${camera}</small>`
+      + `<small>${esc(store.deviceSummary(d))}</small>${memo}</div>
       <span class="badge ${BADGE_CLASS[status]}">${status}</span>
     </div>`;
   }).join('');
@@ -152,6 +157,7 @@ async function renderHome() {
   renderDevices(devices.map(d => ({
     id: d.id,
     label: store.stationLabel(d),
+    model: d.cameraModel || '',
     lat: d.lat,
     lng: d.lng,
     status: store.deviceStatus(d),
@@ -604,6 +610,7 @@ async function renderSync() {
   $('me-text').textContent = me.email
     ? `${me.name || '（白名單未設定姓名）'}　${me.email}`
     : '尚未取得登入身分（連上網路開啟一次即可）';
+  $('app-version').textContent = `網頁版本 ${APP_VERSION}`;
   await renderFieldDefs();
 }
 

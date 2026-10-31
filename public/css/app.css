@@ -116,6 +116,7 @@ textarea{resize:none;}
 .dev .info{flex:1; min-width:0;}
 .dev .info b{font-size:15px; display:block;}
 .dev .info small{font-size:11.5px; color:var(--muted); display:block; margin-top:2px;}
+.dev .info small.memo{color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere;}
 .badge{font-size:10.5px; padding:2px 8px; border-radius:999px; font-weight:700; flex-shrink:0;}
 .badge.ok{background:var(--green-light); color:var(--green-dark);}
 .badge.warn{background:#fdebd0; color:var(--amber);}
@@ -259,4 +260,16 @@ dialog .btn{margin-top:0;}
   .topbar{justify-content:center;}
   .topbar h1{max-width:none;}
   .topbar{padding-left:calc(50% - var(--app-max)/2); padding-right:calc(50% - var(--app-max)/2);}
+}
+
+/* 電腦：設備清單頁放寬、地圖加高、卡片排成多欄；表單頁維持好讀的寬度。手機版不受影響 */
+@media (min-width:900px){
+  :root{--app-max:1100px;}
+  #scr-add, #scr-patrol, #scr-sync{max-width:760px;}
+  #devmap{height:460px;}
+  #device-list{display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:10px;}
+  #device-list .dev{margin-bottom:0;}
+  #device-list .hint{grid-column:1 / -1;}
+  .nav{justify-content:center;}
+  .nav button{flex:0 1 180px;}
 }

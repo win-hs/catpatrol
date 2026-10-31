@@ -67,7 +67,8 @@ export function renderDevices(devices) {
     })
       // 樣點編號常駐顯示在點位旁；有備註時加 📝，點開看內容
       .bindTooltip(esc(d.label) + (d.memo ? ' 📝' : ''), { permanent: true, direction: 'right', offset: [8, 0], className: 'dev-label' })
-      .bindPopup(`<div class="dev-popup"><b>${esc(d.label)}</b><br><small>序號 ${esc(d.id)} · ${d.status}<br>${esc(d.note)}</small>`
+      .bindPopup(`<div class="dev-popup"><b>${esc(d.label)}</b><br><small>序號 ${esc(d.id)}`
+        + `${d.model ? ` · ${esc(d.model)}` : ''}<br>${d.status} · ${esc(d.note)}</small>`
         + (d.memo ? `<div class="dev-memo">📝 ${esc(d.memo)}</div>` : '') + '</div>'));
 
   markers.forEach(m => markerLayer.addLayer(m));

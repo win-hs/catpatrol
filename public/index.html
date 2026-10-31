@@ -30,11 +30,15 @@
       <button class="btn small" type="button" id="project-new">＋ 新專案</button>
     </div>
 
+    <div class="cloud-hint" id="cloud-hint" hidden></div>
+
     <div id="devmap"></div>
     <div class="map-legend">
       <span><i style="background:#2d6a4f;"></i>正常</span>
-      <span><i style="background:#e07a00;"></i>電量低/待巡檢</span>
-      <span><i style="background:#c0392b;"></i>異常</span>
+      <span><i style="background:#e9b200;"></i>逾2月未巡</span>
+      <span><i style="background:#e07a00;"></i>逾3月</span>
+      <span><i style="background:#c0392b;"></i>逾4月</span>
+      <span><i style="background:#7b2cbf;"></i>故障/沒電</span>
     </div>
 
     <div id="device-list"></div>
@@ -51,8 +55,11 @@
       <label class="f">專案 <span class="req">*</span></label>
       <select id="add-project"></select>
 
-      <label class="f">設備編號 <span class="req">*</span></label>
-      <input type="text" id="add-device-id" placeholder="例：YS-LTMM-001">
+      <label class="f">樣點編號 <span class="req">*</span></label>
+      <input type="text" id="add-station" placeholder="例：S-03（地圖上顯示這個）">
+
+      <label class="f">設備序號 <span class="req">*</span></label>
+      <input type="text" id="add-device-id" placeholder="例：相機機身上的序號">
 
       <label class="f">相機型號 <span class="req">*</span></label>
       <select id="add-model"></select>
@@ -76,7 +83,10 @@
     <div class="card">
       <h3>耗材</h3>
       <label class="f">記憶卡編號 <span class="req">*</span></label>
-      <input type="text" id="add-sd" placeholder="例：SD-032">
+      <div class="row sd-row">
+        <select id="add-sd-prefix"><option>野</option><option>Wv</option></select>
+        <input type="text" id="add-sd" placeholder="號碼，例：032">
+      </div>
       <div class="row">
         <div>
           <label class="f">電池類型</label>
@@ -120,7 +130,7 @@
         <div><label class="f" style="margin-top:0;">感度</label>
           <select id="add-sens"><option>高</option><option selected>中</option><option>低</option></select>
         </div>
-        <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" id="add-interval" value="30" min="0" inputmode="numeric"></div>
+        <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" id="add-interval" value="0" min="0" inputmode="numeric"></div>
       </div>
       <div class="tgl-row" style="margin-top:6px;">
         <span>指定工作時段（關閉＝全天）</span>
@@ -152,10 +162,16 @@
   <section class="screen" id="scr-patrol">
     <h2 class="pg">巡檢紀錄</h2>
 
-    <label class="f" style="margin-top:0;">選擇設備</label>
-    <div class="row" style="margin-bottom:14px;">
+    <div class="edit-banner" id="edit-banner" hidden>
+      <span id="edit-banner-text"></span>
+      <button class="btn small" type="button" id="edit-cancel">取消修改</button>
+    </div>
+
+    <label class="f" style="margin-top:0;">選擇樣點</label>
+    <div class="row" style="margin-bottom:8px;">
       <select id="patrol-device"></select>
     </div>
+    <div class="nearest-hint" id="nearest-hint" hidden></div>
 
     <div id="patrol-empty" class="hint" hidden>此專案還沒有設備，請先到「新增」分頁建立。</div>
 
@@ -169,7 +185,7 @@
         <h3>本次巡檢 <span class="auto-chip" id="patrol-meta"></span></h3>
 
         <div class="tgl-row">
-          <span>相機中斷（故障或沒電）</span>
+          <span>相機故障或沒電（現場無相機）</span>
           <button class="tgl" type="button" data-tgl id="pt-down"></button>
         </div>
 
@@ -178,10 +194,12 @@
           <button class="tgl" type="button" data-tgl data-reveal="#swap-new" id="pt-swap"></button>
         </div>
         <div id="swap-new" class="reveal" hidden>
-          <label class="f" style="margin-top:0;">新相機編號 <span class="req">*</span></label>
-          <input type="text" id="pt-new-id" placeholder="例：YS-LTMM-012">
+          <label class="f" style="margin-top:0;">新設備序號 <span class="req">*</span></label>
+          <input type="text" id="pt-new-id" placeholder="例：新相機機身上的序號">
           <label class="f">新相機型號 <span class="req">*</span></label>
           <select id="pt-new-model"></select>
+          <label class="f">更換原因 <span class="req">*</span></label>
+          <input type="text" id="pt-swap-reason" placeholder="例：相機進水故障">
           <p class="sec-note" style="margin-top:6px;" id="pt-swap-note"></p>
         </div>
 
@@ -191,7 +209,10 @@
         </div>
         <div id="sd-new" class="reveal" hidden>
           <label class="f" style="margin-top:0;">新記憶卡編號 <span class="req">*</span></label>
-          <input type="text" id="pt-sd-new" placeholder="例：SD-021">
+          <div class="row sd-row">
+            <select id="pt-sd-new-prefix"><option>野</option><option>Wv</option></select>
+            <input type="text" id="pt-sd-new" placeholder="號碼，例：021">
+          </div>
           <p class="sec-note" style="margin-top:6px;" id="pt-sd-retrieved"></p>
         </div>
 
@@ -318,12 +339,9 @@
     </div>
 
     <div class="card">
-      <h3>巡檢人員</h3>
-      <div class="row">
-        <input type="text" id="inspector-input">
-        <button class="btn small" type="button" id="inspector-save">儲存</button>
-      </div>
-      <p class="sec-note" style="margin-top:8px;">存於本機，所有紀錄自動帶入此名字。</p>
+      <h3>登入帳號</h3>
+      <p id="me-text" style="font-size:14px;"></p>
+      <p class="sec-note" style="margin:8px 0 0;">紀錄上的巡檢人員自動用這個帳號，電腦和手機都一樣。姓名由管理員在試算表「白名單」分頁設定，沒設定時顯示 email。</p>
     </div>
 
     <div class="card">
@@ -344,15 +362,6 @@
 </nav>
 
 <!-- ═══════════ dialogs ═══════════ -->
-<dialog id="dlg-inspector">
-  <form method="dialog">
-    <h3>歡迎使用 CATPatrol</h3>
-    <label class="f">請輸入巡檢人員姓名</label>
-    <input type="text" id="dlg-inspector-name" placeholder="例：王小明">
-    <p class="sec-note" style="margin:8px 0 0;">存於本機，之後所有紀錄自動帶入；可於「同步」分頁修改。</p>
-    <button class="btn" value="ok" style="margin-top:12px;">開始使用</button>
-  </form>
-</dialog>
 
 <dialog id="dlg-project">
   <form method="dialog">

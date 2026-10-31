@@ -1,14 +1,23 @@
 import * as db from './db.js';
 
 const LS = {
-  inspector: 'catpatrol.inspector',
+  inspector: 'catpatrol.inspector', // 舊版手動輸入的姓名，登入身分還沒取得時的備援
+  me: 'catpatrol.me',
   uploadRule: 'catpatrol.uploadRule',
   project: 'catpatrol.project',
 };
 
 export const settings = {
-  get inspector() { return localStorage.getItem(LS.inspector) || ''; },
-  set inspector(v) { localStorage.setItem(LS.inspector, v); },
+  /** 登入身分 {email, name}：Cloudflare 登入的 email，姓名來自試算表「白名單」分頁 */
+  get me() {
+    try { return JSON.parse(localStorage.getItem(LS.me)) || {}; } catch { return {}; }
+  },
+  set me(v) { localStorage.setItem(LS.me, JSON.stringify(v)); },
+  /** 紀錄上的巡檢人員：白名單有姓名用姓名，沒有就用 email；同一個帳號在每台裝置都一樣 */
+  get inspector() {
+    const me = settings.me;
+    return me.name || me.email || localStorage.getItem(LS.inspector) || '';
+  },
   get uploadRule() { return localStorage.getItem(LS.uploadRule) || 'wifi'; },
   set uploadRule(v) { localStorage.setItem(LS.uploadRule, v); },
   get projectId() { return localStorage.getItem(LS.project) || ''; },
@@ -48,11 +57,16 @@ export const makeQueueId = () => `Q-${Date.now().toString(36)}-${rand()}`;
 
 /* ---------- 設備狀態 ---------- */
 
-export const STALE_DAYS = 60;
+/** 地圖與清單用的名稱：樣點編號優先，舊資料沒有樣點編號時用設備序號 */
+export const stationLabel = d => d.stationId || d.id;
 
+/** 優先順序：相機故障 > 未巡天數（一個月以 30 天計）> 電量低 > 正常 */
 export function deviceStatus(d) {
-  if (d.running === false) return '異常';
-  if (daysSince(d.lastPatrolAt) > STALE_DAYS) return '待巡檢';
+  if (d.running === false) return '相機故障';
+  const days = daysSince(d.lastPatrolAt);
+  if (days > 120) return '逾4個月未巡';
+  if (days > 90) return '逾3個月未巡';
+  if (days > 60) return '逾2個月未巡';
   if (d.batteryPct != null && d.batteryPct <= 25) return '電量低';
   return '正常';
 }
@@ -60,8 +74,7 @@ export function deviceStatus(d) {
 export function deviceSummary(d) {
   const status = deviceStatus(d);
   const when = `上次巡檢 ${dateOnly(d.lastPatrolAt)}`;
-  if (status === '異常') return `${when} · 相機中斷 · ${d.lastInspector || ''}`;
-  if (status === '待巡檢') return `${when} · 超過 ${STALE_DAYS} 天未巡檢`;
+  if (status === '相機故障') return `${when} · 相機故障或沒電 · ${d.lastInspector || ''}`;
   return `${when} · 電量 ${d.batteryPct ?? '—'}% · ${d.lastInspector || ''}`;
 }
 
@@ -83,7 +96,8 @@ export async function getLastRecord(deviceId) {
 
 /* ---------- 寫入 ---------- */
 
-async function enqueue(type, payload, photoIds = []) {
+/** extra 可覆寫 id/createdAt/createdMs：修改巡檢紀錄時沿用原本的佇列位置 */
+async function enqueue(type, payload, photoIds = [], extra = {}) {
   await db.put('queue', {
     id: makeQueueId(),
     type,
@@ -93,6 +107,7 @@ async function enqueue(type, payload, photoIds = []) {
     createdMs: Date.now(), // 上傳需嚴格依序（紀錄要在設備之後），createdAt 只到分鐘不夠精確
     status: 'pending',
     retries: 0,
+    ...extra,
   });
 }
 
@@ -127,7 +142,7 @@ export async function addDevice(device, photoIds = []) {
   return full;
 }
 
-export async function addRecord(record, photoIds = []) {
+export async function addRecord(record, photoIds = [], queueMeta = {}) {
   await db.put('records', { ...record, photoIds });
 
   const device = await getDevice(record.deviceId);
@@ -165,6 +180,34 @@ export async function addRecord(record, photoIds = []) {
   }
   await db.put('devices', updated);
 
-  await enqueue('addRecord', { ...record, photoIds }, photoIds);
+  // undo：巡檢前的設備現況，上傳前刪除或修改這筆紀錄時用來還原
+  await enqueue('addRecord', { ...record, photoIds }, photoIds, { undo: { device }, ...queueMeta });
   return updated;
+}
+
+/**
+ * 能不能刪除或修改：還沒上傳、有 undo（舊版建立的沒有），
+ * 而且之後沒有同一台（或換上的新相機）還沒上傳的紀錄，否則還原會蓋掉後面那筆的結果。
+ */
+export function canModifyRecord(item, queue) {
+  if (item.type !== 'addRecord' || !item.undo || !['pending', 'error'].includes(item.status)) return false;
+  const ids = [item.payload.deviceId, item.payload.newDeviceId].filter(Boolean);
+  return !queue.some(q => q.type === 'addRecord' && q.status !== 'done'
+    && (q.createdMs ?? 0) > (item.createdMs ?? 0) && ids.includes(q.payload.deviceId));
+}
+
+/** 撤銷一筆還沒上傳的巡檢紀錄對本機設備現況的影響（照片與佇列項目由呼叫端決定） */
+export async function revertRecord(item) {
+  const p = item.payload;
+  const current = await getDevice(p.deviceId);
+  // 設備現況仍是這筆紀錄造成的才還原；已被雲端較新的資料蓋過就不動
+  if (current?.lastPatrolAt === p.patrolAt) await db.put('devices', item.undo.device);
+  if (p.cameraSwapped && p.newDeviceId) await db.del('devices', p.newDeviceId);
+  await db.del('records', p.recordId);
+}
+
+export async function deletePendingRecord(item) {
+  await revertRecord(item);
+  for (const photoId of item.photoIds || []) await db.del('photos', photoId);
+  await db.del('queue', item.id);
 }

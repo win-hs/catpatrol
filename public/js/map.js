@@ -1,8 +1,13 @@
+import { esc } from './form.js';
+
+// 顏色看「多久沒巡」；電量低不另外上色（清單徽章與點位說明裡看得到）
 const STATUS_COLOR = {
   '正常': '#2d6a4f',
-  '電量低': '#e07a00',
-  '待巡檢': '#e07a00',
-  '異常': '#c0392b',
+  '電量低': '#2d6a4f',
+  '逾2個月未巡': '#e9b200',
+  '逾3個月未巡': '#e07a00',
+  '逾4個月未巡': '#c0392b',
+  '相機故障': '#7b2cbf',
 };
 
 let map;
@@ -59,7 +64,11 @@ export function renderDevices(devices) {
     .map(d => L.circleMarker([d.lat, d.lng], {
       radius: 9, color: '#fff', weight: 2,
       fillColor: STATUS_COLOR[d.status] || '#6b7a70', fillOpacity: 1,
-    }).bindPopup(`<div class="dev-popup"><b>${d.id}</b><br><small>${d.note} · ${d.status}</small></div>`));
+    })
+      // 樣點編號常駐顯示在點位旁；有備註時加 📝，點開看內容
+      .bindTooltip(esc(d.label) + (d.memo ? ' 📝' : ''), { permanent: true, direction: 'right', offset: [8, 0], className: 'dev-label' })
+      .bindPopup(`<div class="dev-popup"><b>${esc(d.label)}</b><br><small>序號 ${esc(d.id)} · ${d.status}<br>${esc(d.note)}</small>`
+        + (d.memo ? `<div class="dev-memo">📝 ${esc(d.memo)}</div>` : '') + '</div>'));
 
   markers.forEach(m => markerLayer.addLayer(m));
   if (markers.length) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.25));

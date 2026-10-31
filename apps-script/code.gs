@@ -17,13 +17,15 @@ const HEADERS = {
   '設備': ['device_id', 'project_id', 'QR碼內容', '經度', '緯度', '記憶卡編號', '電池類型', '電量%',
     '拍攝模式', '連拍張數', '感度', '間隔秒', '設定備註', '建立人員', '建立時間',
     '最後巡檢時間', '最後巡檢人員', '持續運作', '最後備註', '狀態',
-    '相機型號', '照片畫質', '影片畫質', '影片秒數', '工作時間'],
+    '相機型號', '照片畫質', '影片畫質', '影片秒數', '工作時間', '樣點編號'],
   '巡檢紀錄': ['record_id', '巡檢時間', 'project_id', 'device_id', '巡檢人員', '持續運作', '更換記憶卡',
     '新記憶卡編號', '取回記憶卡編號', '更換電池', '新電池類型', '電量%', '設定有變動', '新設定摘要',
     '位置有變動', '經度', '緯度', '照片張數', '照片資料夾連結', '備註', '自訂欄位JSON', '上傳時間',
-    '更換相機', '新設備編號', '新相機型號'],
+    '更換相機', '新設備編號', '新相機型號', '更換原因', '樣點編號'],
   '自訂欄位定義': ['project_id', '欄位名稱', '類型', '選項', '必填', '排序', 'field_id'],
   '照片索引': ['photo_id', 'record_id', 'device_id', '拍攝時間', 'Drive檔案連結', '檔名'],
+  // 人工維護：登入 email 對應的姓名（App 紀錄上的巡檢人員）；CATBase 也用這張表當白名單
+  '白名單': ['email', '姓名', '加入日期', '備註'],
 };
 
 /** 設備分頁欄位索引 */
@@ -31,7 +33,7 @@ const D = {
   id: 0, projectId: 1, qrCode: 2, lng: 3, lat: 4, sdCard: 5, batteryType: 6, batteryPct: 7,
   mode: 8, burst: 9, sensitivity: 10, interval: 11, configNote: 12, createdBy: 13, createdAt: 14,
   lastPatrolAt: 15, lastInspector: 16, running: 17, lastNote: 18, status: 19,
-  cameraModel: 20, photoQuality: 21, videoQuality: 22, videoSec: 23, workHours: 24,
+  cameraModel: 20, photoQuality: 21, videoQuality: 22, videoSec: 23, workHours: 24, stationId: 25,
 };
 
 /* ════════ 進入點 ════════ */
@@ -39,7 +41,7 @@ const D = {
 function doGet(e) {
   try {
     if (e.parameter.token !== TOKEN) return json_({ ok: false, error: 'token 不正確' });
-    if (e.parameter.action === 'bootstrap') return json_(bootstrap_());
+    if (e.parameter.action === 'bootstrap') return json_(bootstrap_(e.parameter.user));
     return json_({ ok: false, error: '未知的 action：' + e.parameter.action });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -73,10 +75,12 @@ function doPost(e) {
 
 /* ════════ 動作 ════════ */
 
-function bootstrap_() {
+/** user：Cloudflare Worker 驗證過的登入 email */
+function bootstrap_(user) {
   const ss = getSS_();
   return {
     ok: true,
+    me: { email: user || '', name: memberName_(ss, user) },
     projects: rows_(ss, '專案').map(r => ({
       id: r[0], name: r[1], createdAt: cell_(r[2]), status: r[3],
     })),
@@ -93,6 +97,7 @@ function bootstrap_() {
       id: r[D.id],
       projectId: r[D.projectId],
       qrCode: r[D.qrCode],
+      stationId: r[D.stationId],
       cameraModel: r[D.cameraModel],
       lng: numOrNull_(r[D.lng]),
       lat: numOrNull_(r[D.lat]),
@@ -157,6 +162,7 @@ function addDevice_(body) {
   row[D.id] = d.id;
   row[D.projectId] = d.projectId;
   row[D.qrCode] = d.qrCode || d.id;
+  row[D.stationId] = d.stationId || '';
   row[D.cameraModel] = d.cameraModel || '';
   row[D.lng] = d.lng;
   row[D.lat] = d.lat;
@@ -199,6 +205,7 @@ function addRecord_(body) {
     (body.photos || []).length, folderUrl, rec.note || '',
     JSON.stringify(rec.customFields || {}), now_(),
     !!rec.cameraSwapped, rec.newDeviceId || '', rec.newCameraModel || '',
+    rec.swapReason || '', rec.stationId || '',
   ]);
 
   applyRecordToDevice_(ss, rec);
@@ -346,6 +353,16 @@ function rows_(ss, name) {
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS[name].length).getValues();
 }
 
+/** 白名單分頁查姓名；分頁還沒建（舊試算表沒重跑 setup）或查不到時回空字串 */
+function memberName_(ss, email) {
+  const sheet = ss.getSheetByName('白名單');
+  if (!email || !sheet || sheet.getLastRow() < 2) return '';
+  const key = String(email).trim().toLowerCase();
+  const hit = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues()
+    .find(r => String(r[0]).trim().toLowerCase() === key);
+  return hit ? String(hit[1]).trim() : '';
+}
+
 /** 回傳列號（1-based，含標題列），找不到為 -1 */
 function findRowIndex_(sheet, value, column) {
   if (sheet.getLastRow() < 2) return -1;
@@ -412,12 +429,13 @@ function setup() {
 }
 
 /**
- * ⚠️ 清空所有資料列與所有照片（保留標題列與資料夾本身）。測試完畢想從乾淨狀態開始時，
+ * ⚠️ 清空所有資料列與所有照片（保留標題列、資料夾本身與白名單）。測試完畢想從乾淨狀態開始時，
  * 於編輯器手動執行。無法從網路呼叫，只有你本人在編輯器能執行。
  */
 function clearAllData() {
   const ss = getSS_();
-  Object.keys(HEADERS).forEach(name => {
+  // 白名單是人員名單不是測試資料，保留
+  Object.keys(HEADERS).filter(name => name !== '白名單').forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (sheet && sheet.getLastRow() > 1) {
       sheet.deleteRows(2, sheet.getLastRow() - 1);
@@ -429,4 +447,46 @@ function clearAllData() {
   const files = root.getFiles();
   while (files.hasNext()) files.next().setTrashed(true);
   Logger.log('已清空所有資料列與照片。');
+}
+
+/**
+ * ⚠️ 刪除指定設備的所有資料：設備列、巡檢紀錄、照片索引，以及照片資料夾（移到垃圾桶）。
+ * 把要刪的設備序號填進 IDS（不分大小寫），於編輯器手動執行；執行記錄會列出實際刪了什麼。
+ * 各手機下次開啟 App 時會跟著移除這些設備。
+ */
+function deleteDevices() {
+  const IDS = ['132', 'Ca-78'];
+
+  const ss = getSS_();
+  const wanted = IDS.map(id => String(id).trim().toLowerCase());
+  const match = v => wanted.indexOf(String(v).trim().toLowerCase()) >= 0;
+
+  // 照片資料夾路徑要用專案名稱，刪設備列之前先記下來
+  const projects = {};
+  rows_(ss, '專案').forEach(r => { projects[r[0]] = r[1]; });
+  const devices = rows_(ss, '設備').filter(r => match(r[D.id]));
+
+  // [分頁, device_id 所在欄（0-based）]；由下往上刪，列號才不會跑掉
+  [['設備', D.id], ['巡檢紀錄', 3], ['照片索引', 2]].forEach(([name, col]) => {
+    const sheet = ss.getSheetByName(name);
+    const values = rows_(ss, name);
+    let count = 0;
+    for (let i = values.length - 1; i >= 0; i--) {
+      if (match(values[i][col])) { sheet.deleteRow(i + 2); count++; }
+    }
+    Logger.log(name + '：刪除 ' + count + ' 列');
+  });
+
+  devices.forEach(r => {
+    const projectName = projects[r[D.projectId]] || r[D.projectId];
+    const projectFolders = photoRoot_().getFoldersByName(projectName);
+    if (!projectFolders.hasNext()) return;
+    const deviceFolders = projectFolders.next().getFoldersByName(r[D.id]);
+    while (deviceFolders.hasNext()) deviceFolders.next().setTrashed(true);
+    Logger.log('照片資料夾已移到垃圾桶：' + projectName + '/' + r[D.id]);
+  });
+
+  const found = devices.map(r => String(r[D.id]).toLowerCase());
+  const missing = IDS.filter(id => found.indexOf(String(id).trim().toLowerCase()) < 0);
+  if (missing.length) Logger.log('設備分頁找不到：' + missing.join('、') + '（請確認序號）');
 }

@@ -26,7 +26,8 @@ const makePhotoId = () =>
  * 回傳 { ids, take, reset } 供表單存檔時取用。
  */
 export function photoGrid(container) {
-  let items = [];
+  let items = [];   // original:true＝修改紀錄時載入的既有照片
+  let removed = []; // 修改時按掉的既有照片：存檔才真的刪，取消修改就還在
   let busy = 0;
   let pending = Promise.resolve();
 
@@ -65,7 +66,8 @@ export function photoGrid(container) {
     const item = items.find(i => i.photoId === photo);
     if (item) URL.revokeObjectURL(item.url);
     items = items.filter(i => i.photoId !== photo);
-    await db.del('photos', photo);
+    if (item?.original) removed.push(photo);
+    else await db.del('photos', photo);
     render();
   });
 
@@ -92,22 +94,33 @@ export function photoGrid(container) {
     /** 等待所有進行中的壓縮完成 */
     ready: () => pending,
     ids: () => items.map(i => i.photoId),
-    /** 存檔時呼叫：交出 id 並清空預覽（blob 保留給上傳佇列） */
+    /** 存檔時呼叫：交出 id 並清空預覽（blob 保留給上傳佇列）；修改時按掉的既有照片這時才刪 */
     take() {
       const ids = items.map(i => i.photoId);
       items.forEach(i => URL.revokeObjectURL(i.url));
+      removed.forEach(photoId => db.del('photos', photoId));
       items = [];
+      removed = [];
       render();
       return ids;
     },
-    /** 放棄表單時呼叫：連同 blob 一起刪除 */
+    /** 放棄表單時呼叫：新拍的連同 blob 一起刪除；修改時載入的既有照片保留給原紀錄 */
     async reset() {
       await pending;
       for (const item of items) {
         URL.revokeObjectURL(item.url);
-        await db.del('photos', item.photoId);
+        if (!item.original) await db.del('photos', item.photoId);
       }
       items = [];
+      removed = [];
+      render();
+    },
+    /** 修改還沒上傳的紀錄時，載入它原本的照片 */
+    async load(photoIds) {
+      for (const photoId of photoIds) {
+        const row = await db.get('photos', photoId);
+        if (row) items.push({ photoId, url: URL.createObjectURL(row.blob), original: true });
+      }
       render();
     },
   };

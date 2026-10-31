@@ -1,3 +1,13 @@
+/** 使用者輸入的文字（備註、樣點編號）放進 innerHTML 前先跳脫 */
+export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
+/** 記憶卡編號＝前綴（野／Wv）＋號碼 */
+export const SD_PREFIXES = ['野', 'Wv'];
+export const sdValue = (prefixEl, numEl) => (numEl.value.trim() ? prefixEl.value + numEl.value.trim() : '');
+export const sdPrefixOf = card => SD_PREFIXES.find(p => String(card || '').startsWith(p)) || SD_PREFIXES[0];
+
 /* ---------- 驗證 ---------- */
 
 export function clearErrors(scope) {

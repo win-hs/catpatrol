@@ -65,7 +65,10 @@ export async function syncNow({ force = false } = {}) {
       .filter(q => q.status !== 'done')
       .sort((a, b) => (a.createdMs ?? 0) - (b.createdMs ?? 0));
 
-    for (const item of queue) {
+    for (const queued of queue) {
+      // 重讀一次：上傳途中使用者可能刪除或修改了後面還沒輪到的項目
+      const item = await db.get('queue', queued.id);
+      if (!item || item.status === 'done') continue;
       if (!force && item.nextRetryAt && item.nextRetryAt > Date.now()) break;
 
       await save(item, { status: 'uploading' });
@@ -117,6 +120,7 @@ export async function purgeDone(keepDays = KEEP_DONE_DAYS) {
  */
 export async function pull() {
   const data = await api.bootstrap();
+  if (data.me) store.settings.me = data.me;
 
   const keep = { projects: new Set(), fieldDefs: new Set(), devices: new Set() };
   for (const { type, payload: p } of (await store.getQueue()).filter(q => q.status !== 'done')) {

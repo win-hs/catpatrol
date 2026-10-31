@@ -114,7 +114,7 @@ export async function purgeDone(keepDays = KEEP_DONE_DAYS) {
 }
 
 /**
- * 從雲端拉最新資料合併進本機；本機有較新的巡檢時不覆蓋。
+ * 從雲端拉最新資料合併進本機；設備有還沒上傳的紀錄時保留本機版本。
  * 雲端已沒有的專案、欄位、設備（例如擁有者清空了試算表）本機也移除，讓每支手機都跟雲端一致；
  * 還在佇列等上傳的不動，否則離線新增的資料會在上傳前被刪掉。
  */
@@ -127,15 +127,15 @@ export async function pull() {
     if (type === 'addProject') keep.projects.add(p.id);
     if (type === 'saveFieldDef') keep.fieldDefs.add(p.id);
     if (type === 'addDevice') keep.devices.add(p.id);
-    if (type === 'addRecord') keep.devices.add(p.deviceId).add(p.newDeviceId);
+    if (type === 'addRecord' || type === 'updateRecord') keep.devices.add(p.deviceId).add(p.newDeviceId);
     if (p.projectId) keep.projects.add(p.projectId);
   }
 
   for (const project of data.projects) await db.put('projects', project);
   for (const def of data.fieldDefs) await db.put('fieldDefs', def);
   for (const device of data.devices) {
-    const local = await db.get('devices', device.id);
-    if (local && (local.lastPatrolAt || '') > (device.lastPatrolAt || '')) continue;
+    // 有還沒上傳的變動才保留本機版本；其餘一律以雲端為準（在試算表上手動改的也會同步下來）
+    if (keep.devices.has(device.id) && await db.get('devices', device.id)) continue;
     await db.put('devices', device);
   }
 

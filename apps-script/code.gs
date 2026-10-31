@@ -42,6 +42,7 @@ function doGet(e) {
   try {
     if (e.parameter.token !== TOKEN) return json_({ ok: false, error: 'token 不正確' });
     if (e.parameter.action === 'bootstrap') return json_(bootstrap_(e.parameter.user));
+    if (e.parameter.action === 'photo') return json_(photo_(e.parameter.id));
     return json_({ ok: false, error: '未知的 action：' + e.parameter.action });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -62,6 +63,7 @@ function doPost(e) {
       deleteFieldDef: deleteFieldDef_,
       addDevice: addDevice_,
       addRecord: addRecord_,
+      updateRecord: updateRecord_,
     };
     const handler = handlers[body.action];
     if (!handler) return json_({ ok: false, error: '未知的 action：' + body.action });
@@ -78,6 +80,12 @@ function doPost(e) {
 /** user：Cloudflare Worker 驗證過的登入 email */
 function bootstrap_(user) {
   const ss = getSS_();
+  // 每台設備最新一張照片的 Drive 檔案 id（照片索引依上傳順序 append，後面的較新）
+  const lastPhoto = {};
+  rows_(ss, '照片索引').forEach(r => {
+    const id = driveFileId_(r[4]);
+    if (id) lastPhoto[r[2]] = id;
+  });
   return {
     ok: true,
     me: { email: user || '', name: memberName_(ss, user) },
@@ -122,6 +130,7 @@ function bootstrap_(user) {
       running: r[D.running] !== false && String(r[D.running]).toUpperCase() !== 'FALSE',
       lastNote: r[D.lastNote],
       retired: r[D.status] === RETIRED,
+      lastPhotoId: lastPhoto[r[D.id]] || '',
     })),
   };
 }
@@ -195,21 +204,88 @@ function addRecord_(body) {
 
   const day = String(rec.patrolAt).slice(0, 10);
   const folderUrl = savePhotos_(ss, body.photos, rec.projectId, rec.deviceId, day, rec.recordId);
+  sheet.appendRow(recordRow_(rec, (body.photos || []).length, folderUrl));
 
-  sheet.appendRow([
+  applyRecordToDevice_(ss, rec);
+  return { ok: true, recordId: rec.recordId };
+}
+
+/**
+ * 修改已上傳的巡檢紀錄：整列覆蓋（照片張數累加、補拍的照片存進同一個資料夾）。
+ * 設備現況由 App 算好放在 deviceState；這筆仍是該設備最新一次巡檢才覆蓋，否則只改紀錄列。
+ * 換機紀錄 App 不允許上傳後修改，這裡不處理換機。
+ */
+function updateRecord_(body) {
+  const rec = body.payload;
+  const ss = getSS_();
+  const sheet = ss.getSheetByName('巡檢紀錄');
+  const idx = findRowIndex_(sheet, rec.recordId);
+  if (idx < 0) return addRecord_(body); // 雲端找不到（例如被刪了）就當新紀錄寫入
+
+  const width = HEADERS['巡檢紀錄'].length;
+  const old = sheet.getRange(idx, 1, 1, width).getValues()[0];
+  const photos = body.photos || [];
+  const folderUrl = photos.length
+    ? savePhotos_(ss, photos, rec.projectId, rec.deviceId, String(rec.patrolAt).slice(0, 10), rec.recordId)
+    : old[18];
+  sheet.getRange(idx, 1, 1, width).setValues([recordRow_(rec, (Number(old[17]) || 0) + photos.length, folderUrl)]);
+
+  const dsheet = ss.getSheetByName('設備');
+  const di = findRowIndex_(dsheet, rec.deviceId);
+  if (di > 0 && rec.deviceState) {
+    const dw = HEADERS['設備'].length;
+    const drow = dsheet.getRange(di, 1, 1, dw).getValues()[0];
+    if (cell_(drow[D.lastPatrolAt]) === rec.patrolAt) {
+      writeDeviceState_(drow, rec.deviceState);
+      dsheet.getRange(di, 1, 1, dw).setValues([drow]);
+    }
+  }
+  return { ok: true, recordId: rec.recordId, updated: true };
+}
+
+/** 巡檢紀錄分頁的一列（新增與修改共用） */
+function recordRow_(rec, photoCount, folderUrl) {
+  return [
     rec.recordId, rec.patrolAt, rec.projectId, rec.deviceId, rec.inspector,
     !!rec.running, !!rec.sdChanged, rec.sdNew || '', rec.sdRetrieved || '',
     !!rec.batteryChanged, rec.batteryTypeNew || '', rec.batteryPct,
     !!rec.configChanged, configSummary_(rec.config),
     !!rec.locationChanged, rec.lng == null ? '' : rec.lng, rec.lat == null ? '' : rec.lat,
-    (body.photos || []).length, folderUrl, rec.note || '',
+    photoCount, folderUrl || '', rec.note || '',
     JSON.stringify(rec.customFields || {}), now_(),
     !!rec.cameraSwapped, rec.newDeviceId || '', rec.newCameraModel || '',
     rec.swapReason || '', rec.stationId || '',
-  ]);
+  ];
+}
 
-  applyRecordToDevice_(ss, rec);
-  return { ok: true, recordId: rec.recordId };
+/** 用 App 算好的設備現況覆蓋（不動 device_id、樣點、型號、建立資訊這些身分欄） */
+function writeDeviceState_(row, d) {
+  row[D.sdCard] = d.sdCard || '';
+  row[D.batteryType] = d.batteryType || '';
+  row[D.batteryPct] = blank_(d.batteryPct);
+  if (d.config) writeConfig_(row, d.config);
+  row[D.lng] = blank_(d.lng);
+  row[D.lat] = blank_(d.lat);
+  row[D.lastInspector] = d.lastInspector || '';
+  row[D.running] = d.running !== false;
+  row[D.lastNote] = d.lastNote || '';
+  row[D.status] = calcStatus_(d.running !== false, d.batteryPct, d.lastPatrolAt);
+}
+
+/** 巡檢時顯示上次的照片：只給照片索引裡登記過的檔案，不能拿來讀雲端硬碟裡其他檔案 */
+function photo_(id) {
+  const sheet = getSS_().getSheetByName('照片索引');
+  if (!id || sheet.getLastRow() < 2) return { ok: false, error: '找不到照片' };
+  const listed = sheet.getRange(2, 5, sheet.getLastRow() - 1, 1).getValues().some(r => driveFileId_(r[0]) === id);
+  if (!listed) return { ok: false, error: '找不到照片' };
+  const blob = DriveApp.getFileById(id).getBlob();
+  return { ok: true, mime: blob.getContentType() || 'image/jpeg', data: Utilities.base64Encode(blob.getBytes()) };
+}
+
+/** 從 Drive 檔案網址取出檔案 id（https://drive.google.com/file/d/<id>/view…） */
+function driveFileId_(url) {
+  const m = String(url || '').match(/\/d\/([\w-]+)/) || String(url || '').match(/[?&]id=([\w-]+)/);
+  return m ? m[1] : '';
 }
 
 /** 把巡檢結果寫回「設備」分頁的現況；較舊的紀錄不覆蓋較新的現況 */

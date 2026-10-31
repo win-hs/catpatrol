@@ -6,8 +6,8 @@ import * as sync from './sync.js';
 import * as api from './api.js';
 import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
 
-// 與 sw.js 的 VERSION 一起改：同步分頁顯示，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v9';
+// 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
+const APP_VERSION = 'v0.1';
 
 const $ = id => document.getElementById(id);
 const { esc } = form;
@@ -82,14 +82,13 @@ function openDialog(dialogId) {
   });
 }
 
-function fillGps(lngEl, latEl, btn) {
+function fillGps(coordEl, btn) {
   if (!navigator.geolocation) return alert('此裝置無法取得 GPS 位置');
   const original = btn.textContent;
   btn.textContent = '定位中…';
   navigator.geolocation.getCurrentPosition(
     p => {
-      lngEl.value = p.coords.longitude.toFixed(5);
-      latEl.value = p.coords.latitude.toFixed(5);
+      coordEl.value = `${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`;
       btn.textContent = `📍 已定位（±${Math.round(p.coords.accuracy)}m）`;
       setTimeout(() => { btn.textContent = original; }, 3000);
     },
@@ -197,7 +196,7 @@ $('add-model').innerHTML = MODEL_OPTIONS;
 $('add-model').addEventListener('change', e => addCfg.setModel(e.target.value));
 addCfg.setModel('');
 
-$('add-gps').addEventListener('click', e => fillGps($('add-lng'), $('add-lat'), e.target));
+$('add-gps').addEventListener('click', e => fillGps($('add-coord'), e.target));
 
 $('add-save').addEventListener('click', async () => {
   const scope = $('scr-add');
@@ -207,8 +206,7 @@ $('add-save').addEventListener('click', async () => {
   ok = form.require($('add-device-id'), '請輸入設備序號') && ok;
   ok = form.require($('add-model'), '請選擇相機型號') && ok;
   ok = form.require($('add-sd'), '請輸入記憶卡號碼') && ok;
-  ok = form.requireCoord($('add-lng'), 180, '請輸入經度數字（例：120.30772）或按 GPS 定位') && ok;
-  ok = form.requireCoord($('add-lat'), 90, '請輸入緯度數字（例：23.51234）或按 GPS 定位') && ok;
+  ok = form.requireCoord($('add-coord')) && ok;
   ok = addCfg.validate() && ok;
   if (!$('add-project').value) { alert('請先建立專案'); ok = false; }
   if (!ok) return;
@@ -227,8 +225,7 @@ $('add-save').addEventListener('click', async () => {
     stationId: $('add-station').value.trim(),
     qrCode: id,
     cameraModel: $('add-model').value,
-    lng: Number($('add-lng').value),
-    lat: Number($('add-lat').value),
+    ...form.parseCoord($('add-coord').value),
     sdCard: form.sdValue($('add-sd-prefix'), $('add-sd')),
     batteryType: $('add-battery-type').value,
     batteryPct: Number($('add-battery-pct').value),
@@ -236,7 +233,7 @@ $('add-save').addEventListener('click', async () => {
   }, photoIds);
 
   addPhotos.take();
-  ['add-station', 'add-device-id', 'add-sd', 'add-lng', 'add-lat', 'add-config-note'].forEach(k => { $(k).value = ''; });
+  ['add-station', 'add-device-id', 'add-sd', 'add-coord', 'add-config-note'].forEach(k => { $(k).value = ''; });
   $('add-battery-pct').value = '100';
   await updateSyncChip();
   go('scr-home');
@@ -322,7 +319,9 @@ async function renderPatrol({ auto = false, deviceId } = {}) {
   if (editing) {
     const d = editing.undo.device;
     select.innerHTML = `<option value="${esc(d.id)}">${esc(patrolOptionLabel(d))}</option>`;
-    $('edit-banner-text').textContent = `✏️ 正在修改 ${editing.payload.patrolAt} 的巡檢紀錄`;
+    $('edit-banner-text').textContent = store.isUploadedRecord(editing)
+      ? `✏️ 正在修改已上傳的紀錄（${editing.payload.patrolAt}），存檔後覆蓋雲端`
+      : `✏️ 正在修改 ${editing.payload.patrolAt} 的巡檢紀錄`;
     $('patrol-empty').hidden = true;
     $('patrol-form').hidden = false;
     await loadPatrolDevice(d.id);
@@ -361,9 +360,10 @@ async function loadPatrolDevice(deviceId) {
     ['記憶卡', device.sdCard || '—'],
     ['電池', `${device.batteryType || '—'} · ${device.batteryPct ?? '—'}%`],
     ['設定', configSummary(device.config)],
-    ['座標', `${device.lng ?? '—'}, ${device.lat ?? '—'}`],
+    ['座標', form.formatCoord(device.lat, device.lng)],
     ['備註', device.lastNote || '—'],
   ].map(([k, v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('');
+  renderLastVisual(device);
 
   const when = editing ? editing.payload.patrolAt : store.stamp();
   const who = editing ? editing.payload.inspector : store.settings.inspector;
@@ -386,19 +386,50 @@ async function loadPatrolDevice(deviceId) {
   $('pt-note').value = '';
   $('pt-bat-type').value = device.batteryType || '鹼性';
   ptCfg.fill(device.config, device.cameraModel);
-  $('pt-lng').value = '';
-  $('pt-lat').value = '';
+  $('pt-coord').value = '';
+
+  // 修改已上傳的紀錄：換機不能在這時才加（雲端不會補建新相機），原本的照片已在雲端、本機沒有
+  const uploaded = !!editing && store.isUploadedRecord(editing);
+  $('pt-swap').closest('.tgl-row').hidden = uploaded;
+  $('pt-photos-uploaded').hidden = !uploaded;
 
   await patrolPhotos.reset();
   patrolDefs = await store.getFieldDefs(device.projectId);
   form.renderCustomFields($('pt-custom'), patrolDefs, editing ? editing.payload.customFields : {});
   if (editing) {
     fillFromRecord(editing.payload, device);
-    await patrolPhotos.load(editing.photoIds || []);
+    // 已上傳的照片本機已刪；修改後待上傳的（updateRecord）則是補拍的那些，還在本機
+    if (editing.status !== 'done') await patrolPhotos.load(editing.photoIds || []);
   }
   form.clearErrors($('scr-patrol'));
   patrolTouched = false;
 }
+
+let photoToken = 0;
+
+/** 比對卡左邊：上次的照片＋醒目的樣點編號；沒照片（或離線又沒快取過）就只顯示大字樣點編號 */
+function renderLastVisual(device) {
+  const token = ++photoToken;
+  const box = $('last-visual');
+  const img = $('last-photo');
+  $('last-station').textContent = store.stationLabel(device);
+  img.hidden = true;
+  img.removeAttribute('src');
+  box.classList.remove('has-photo');
+  if (!device.lastPhotoId) return;
+  api.photo(device.lastPhotoId).then(url => {
+    if (token !== photoToken) return; // 已經換到別台
+    img.src = url;
+    img.hidden = false;
+    box.classList.add('has-photo');
+  }).catch(() => {});
+}
+
+$('last-photo').addEventListener('click', () => {
+  $('photo-view-img').src = $('last-photo').src;
+  $('photo-view').hidden = false;
+});
+$('photo-view').addEventListener('click', () => { $('photo-view').hidden = true; });
 
 /** 修改模式：把原紀錄的內容填回表單 */
 function fillFromRecord(p, device) {
@@ -423,10 +454,7 @@ function fillFromRecord(p, device) {
   set('pt-cfg-changed', p.configChanged, 'cfg-new');
   if (p.configChanged) ptCfg.fill(p.config, p.cameraSwapped ? p.newCameraModel : device.cameraModel);
   set('pt-loc-changed', p.locationChanged, 'loc-new');
-  if (p.locationChanged) {
-    $('pt-lng').value = p.lng;
-    $('pt-lat').value = p.lat;
-  }
+  if (p.locationChanged) $('pt-coord').value = form.formatCoord(p.lat, p.lng);
   $('pt-note').value = p.note || '';
 }
 
@@ -440,7 +468,7 @@ $('patrol-device').addEventListener('change', e => {
   $('nearest-hint').hidden = true;
   loadPatrolDevice(e.target.value);
 });
-$('pt-gps').addEventListener('click', e => fillGps($('pt-lng'), $('pt-lat'), e.target));
+$('pt-gps').addEventListener('click', e => fillGps($('pt-coord'), e.target));
 
 $('pt-new-model').innerHTML = MODEL_OPTIONS;
 
@@ -498,8 +526,7 @@ $('pt-save').addEventListener('click', async () => {
   if (sdChanged) ok = form.require($('pt-sd-new'), '請輸入新記憶卡號碼') && ok;
   if (cfgChanged) ok = ptCfg.validate() && ok;
   if (locChanged) {
-    ok = form.requireCoord($('pt-lng'), 180, '請輸入經度數字（例：120.30772）或按 GPS 定位') && ok;
-    ok = form.requireCoord($('pt-lat'), 90, '請輸入緯度數字（例：23.51234）或按 GPS 定位') && ok;
+    ok = form.requireCoord($('pt-coord')) && ok;
   }
   ok = form.validateCustomFields($('pt-custom'), patrolDefs) && ok;
   if (!ok) return;
@@ -525,25 +552,27 @@ $('pt-save').addEventListener('click', async () => {
     configChanged: cfgChanged,
     config: cfgChanged ? ptCfg.read() : null,
     locationChanged: locChanged,
-    lng: locChanged ? Number($('pt-lng').value) : null,
-    lat: locChanged ? Number($('pt-lat').value) : null,
+    lat: locChanged ? form.parseCoord($('pt-coord').value).lat : null,
+    lng: locChanged ? form.parseCoord($('pt-coord').value).lng : null,
     note: $('pt-note').value.trim(),
     customFields: form.collectCustomFields($('pt-custom'), patrolDefs),
   };
 
   await patrolPhotos.ready();
   if (editing) {
-    // 存檔前再確認一次：修改途中這筆可能已經被背景上傳
+    // 存檔前重讀一次：修改途中這筆可能剛被背景上傳（上傳完成的話改成覆蓋雲端即可）
     const queue = await store.getQueue();
     const item = queue.find(q => q.id === editing.id);
+    if (item?.status === 'uploading') return alert('這筆正在上傳，請等幾秒再按一次存檔。');
     if (!item || !store.canModifyRecord(item, queue)) {
-      alert('這筆紀錄在你修改時已經上傳，修改內容沒有儲存。');
+      alert('這筆紀錄已經不能修改（可能已從佇列清除），修改內容沒有儲存。');
       cancelEdit();
       return go('scr-sync');
     }
+    const type = item.type === 'addRecord' && item.status !== 'done' ? 'addRecord' : 'updateRecord';
     await store.revertRecord(item);
     await store.addRecord(record, patrolPhotos.take(),
-      { id: item.id, createdAt: item.createdAt, createdMs: item.createdMs });
+      { id: item.id, createdAt: item.createdAt, createdMs: item.createdMs }, type);
     editing = null;
   } else {
     await store.addRecord(record, patrolPhotos.take());
@@ -556,11 +585,11 @@ $('pt-save').addEventListener('click', async () => {
 /* ═══════════ 同步與設定 ═══════════ */
 
 const QUEUE_LABEL = {
-  addRecord: '巡檢紀錄', addDevice: '新增設備', addProject: '建立專案',
+  addRecord: '巡檢紀錄', updateRecord: '修改巡檢紀錄', addDevice: '新增設備', addProject: '建立專案',
   saveFieldDef: '自訂欄位', deleteFieldDef: '刪除自訂欄位',
 };
 const QUEUE_ICON = {
-  addRecord: '📝', addDevice: '📷', addProject: '📁',
+  addRecord: '📝', updateRecord: '✏️', addDevice: '📷', addProject: '📁',
   saveFieldDef: '🏷️', deleteFieldDef: '🗑️',
 };
 const STATUS_LABEL = { pending: ['待上傳', 'wait'], uploading: ['上傳中', 'up'], done: ['✓ 已上傳', 'done'], error: ['上傳失敗', 'err'] };
@@ -594,10 +623,11 @@ async function renderSync() {
         const target = p.stationId || p.deviceId || p.name || p.id || '';
         const photos = q.photoIds?.length ? ` · 含 ${q.photoIds.length} 張照片` : '';
         const err = q.status === 'error' ? `<br><span class="q-err">${esc(q.error)}（第 ${q.retries} 次失敗，將自動重試）</span>` : '';
-        const actions = store.canModifyRecord(q, queue)
-          ? `<div class="q-actions"><button type="button" data-edit="${q.id}">✏️ 修改</button>`
-            + `<button type="button" class="danger" data-del="${q.id}">🗑 刪除</button></div>`
-          : '';
+        const buttons = [
+          store.canModifyRecord(q, queue) ? `<button type="button" data-edit="${q.id}">✏️ 修改</button>` : '',
+          store.canDeleteRecord(q, queue) ? `<button type="button" class="danger" data-del="${q.id}">🗑 刪除</button>` : '',
+        ].join('');
+        const actions = buttons ? `<div class="q-actions">${buttons}</div>` : '';
         return `<div class="q-item">${QUEUE_ICON[q.type] || '📄'}
           <div>${esc(target)} ${QUEUE_LABEL[q.type] || q.type}<small>${q.createdAt}${photos}${err}</small>${actions}</div>
           <span class="st ${cls}">${label}</span></div>`;
@@ -610,14 +640,13 @@ async function renderSync() {
   $('me-text').textContent = me.email
     ? `${me.name || '（白名單未設定姓名）'}　${me.email}`
     : '尚未取得登入身分（連上網路開啟一次即可）';
-  $('app-version').textContent = `網頁版本 ${APP_VERSION}`;
   await renderFieldDefs();
 }
 
 async function startEdit(itemId) {
   const queue = await store.getQueue();
   const item = queue.find(q => q.id === itemId);
-  if (!item || !store.canModifyRecord(item, queue)) return alert('這筆紀錄正在上傳或已上傳，不能修改');
+  if (!item || !store.canModifyRecord(item, queue)) return alert('這筆紀錄正在上傳，或之後還有同一台的紀錄，現在不能修改');
   editing = item;
   store.settings.projectId = item.payload.projectId;
   go('scr-patrol', { auto: false });
@@ -631,7 +660,7 @@ $('queue-list').addEventListener('click', async e => {
   if (!del) return;
   const queue = await store.getQueue();
   const item = queue.find(q => q.id === del.dataset.del);
-  if (!item || !store.canModifyRecord(item, queue)) return alert('這筆紀錄正在上傳或已上傳，不能刪除');
+  if (!item || !store.canDeleteRecord(item, queue)) return alert('這筆紀錄正在上傳或已上傳，不能刪除');
   const where = item.payload.stationId || item.payload.deviceId;
   if (!confirm(`確定刪除 ${where} 在 ${item.payload.patrolAt} 的巡檢紀錄？照片也會一起刪除。`)) return;
   await store.deletePendingRecord(item);
@@ -754,11 +783,24 @@ async function refreshFromCloud() {
     lastPullAt = Date.now();
     setCloudHint(`☁️ 已與雲端同步（${store.stamp().slice(11)}）`);
     await renderHome();
+    prefetchPhotos();
   } catch (err) {
     noteSyncError(err);
     setCloudHint(err instanceof api.LoginExpiredError
       ? '🔒 登入已過期，顯示的是這台裝置上的資料 — 請到「同步」分頁按「重新登入」'
       : `⚠️ 無法取得雲端資料（${err.message}），顯示的是這台裝置上的資料`, true);
+  }
+}
+
+/**
+ * 不是行動網路時，先把目前專案各樣點的上次照片抓下來（Service Worker 快取），上山離線也看得到。
+ * 一張約 400KB，行動網路下不抓，等巡檢時看到哪台才抓哪台。
+ */
+async function prefetchPhotos() {
+  if (navigator.connection?.type === 'cellular') return;
+  const devices = await store.getDevices(store.settings.projectId);
+  for (const d of devices.filter(x => x.lastPhotoId).slice(0, 60)) {
+    try { await api.photo(d.lastPhotoId); } catch { return; }
   }
 }
 
@@ -800,6 +842,7 @@ document.addEventListener('visibilitychange', () => {
 
 sync.setOnChange(updateSyncChip);
 
+$('app-ver').textContent = APP_VERSION;
 initMap();
 try {
   await renderHome();

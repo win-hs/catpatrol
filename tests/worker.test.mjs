@@ -59,6 +59,13 @@ check('bootstrap body passthrough + no-store', JSON.stringify(await r.json()) ==
   && r.headers.get('Cache-Control') === 'no-store');
 
 calls = [];
+r = await worker.fetch(req('/api/photo?id=FILE_1', { jwt }), env);
+const ph = new URL(calls[0]?.url || 'http://x');
+check('photo forwarded with action=photo + id + token', r.status === 200 && ph.searchParams.get('action') === 'photo'
+  && ph.searchParams.get('id') === 'FILE_1' && ph.searchParams.get('token') === 'sekret');
+check('photo without login -> 401', await status('/api/photo?id=FILE_1') === 401);
+
+calls = [];
 const payload = JSON.stringify({ action: 'addRecord', payload: { recordId: 'R1' }, photos: [{ dataBase64: 'x'.repeat(5000) }] });
 r = await worker.fetch(req('/api/write', { jwt, method: 'POST', body: payload }), env);
 const pu = new URL(calls[0]?.url || 'http://x');

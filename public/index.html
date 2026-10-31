@@ -15,7 +15,7 @@
 <body>
 
 <header class="topbar">
-  <h1>🐾 CATPatrol 巡檢</h1>
+  <h1>🐾 CATPatrol 巡檢 <small class="ver" id="app-ver"></small></h1>
   <div class="sync-chip" id="sync-chip" hidden><span class="dot"></span><span id="sync-chip-text"></span></div>
 </header>
 
@@ -73,10 +73,8 @@
 
     <div class="card">
       <h3>位置（首次設定）</h3>
-      <div class="row">
-        <div><label class="f">經度 <span class="req">*</span></label><input type="text" id="add-lng" inputmode="decimal"></div>
-        <div><label class="f">緯度 <span class="req">*</span></label><input type="text" id="add-lat" inputmode="decimal"></div>
-      </div>
+      <label class="f">座標（緯度, 經度） <span class="req">*</span></label>
+      <input type="text" id="add-coord" placeholder="例：23.51234, 120.30772（可直接貼 Google 地圖的座標）">
       <button class="btn sub" type="button" id="add-gps" style="margin-top:10px;">📍 取得目前 GPS 位置</button>
     </div>
 
@@ -178,7 +176,14 @@
     <div id="patrol-form" hidden>
       <div class="card last-card">
         <h3 id="last-title">📋 上次巡檢狀態</h3>
-        <table class="cmp"><tbody id="last-body"></tbody></table>
+        <div class="last-wrap">
+          <!-- 上次的照片＋醒目的樣點編號；沒照片時只顯示大字樣點編號 -->
+          <div class="last-visual" id="last-visual">
+            <img id="last-photo" alt="上次的照片" hidden>
+            <span class="last-station" id="last-station"></span>
+          </div>
+          <table class="cmp"><tbody id="last-body"></tbody></table>
+        </div>
       </div>
 
       <div class="card">
@@ -283,10 +288,8 @@
           <button class="tgl" type="button" data-tgl data-reveal="#loc-new" id="pt-loc-changed"></button>
         </div>
         <div id="loc-new" class="reveal" hidden>
-          <div class="row">
-            <div><label class="f" style="margin-top:0;">經度</label><input type="text" id="pt-lng" inputmode="decimal"></div>
-            <div><label class="f" style="margin-top:0;">緯度</label><input type="text" id="pt-lat" inputmode="decimal"></div>
-          </div>
+          <label class="f" style="margin-top:0;">新座標（緯度, 經度）</label>
+          <input type="text" id="pt-coord" placeholder="例：23.51234, 120.30772">
           <button class="btn sub" type="button" id="pt-gps" style="margin-top:10px;">📍 取得目前 GPS 位置</button>
         </div>
       </div>
@@ -302,6 +305,7 @@
           <button class="add" type="button">＋</button>
         </div>
         <p class="sec-note" style="margin:8px 0 0;">上傳時自動壓縮，存入雲端「專案／設備／日期」資料夾。</p>
+        <p class="sec-note" id="pt-photos-uploaded" style="margin:4px 0 0;" hidden>這筆已上傳過，原本的照片保留在雲端；這裡拍的會補傳上去。</p>
       </div>
 
       <div class="card">
@@ -344,8 +348,6 @@
       <p class="sec-note" style="margin:8px 0 0;">紀錄上的巡檢人員自動用這個帳號，電腦和手機都一樣。姓名由管理員在試算表「白名單」分頁設定，沒設定時顯示 email。</p>
     </div>
 
-    <p class="sec-note" id="app-version" style="text-align:center;"></p>
-
     <div class="card">
       <h3 id="fields-title">專案自訂欄位</h3>
       <div id="fields-list"></div>
@@ -362,6 +364,9 @@
   <button data-screen="scr-patrol"><span class="ic">✅</span>巡檢</button>
   <button data-screen="scr-sync"><span class="ic">☁️</span>同步</button>
 </nav>
+
+<!-- 點上次照片放大看，再點一下關閉 -->
+<div class="photo-view" id="photo-view" hidden><img id="photo-view-img" alt=""></div>
 
 <!-- ═══════════ dialogs ═══════════ -->
 

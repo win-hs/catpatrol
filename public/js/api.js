@@ -35,6 +35,13 @@ export async function bootstrap() {
   return parse(await fetch('api/bootstrap', { redirect: 'manual', cache: 'no-store' }));
 }
 
+/** 某張已上傳照片（雲端 Drive 檔，經 Worker 代轉），回傳 data URL；Service Worker 會快取，離線也看得到看過的 */
+export async function photo(fileId) {
+  const res = await fetch(`api/photo?id=${encodeURIComponent(fileId)}`, { redirect: 'manual' });
+  const data = await parse(res);
+  return `data:${data.mime};base64,${data.data}`;
+}
+
 export async function send(action, payload, photos = []) {
   const res = await fetch('api/write', {
     method: 'POST',

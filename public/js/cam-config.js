@@ -3,6 +3,7 @@ import { markError } from './form.js';
 /**
  * 相機型號與各自的設定選項（2026-10 查證）：
  * - Meidase P70：官方說明書
+ * - Meidase P60：零售頁只查到最高 32MP、影片 1296p/1080p（其他照片檔位與影片秒數範圍查不到，用「其他」自填）
  * - Meidase P60 Pro：零售頁（影片秒數範圍查不到）
  * - Browning Spec Ops Elite HP5 Ultra：官網與評測（照片只查到最高 46MP、最低 4MP，中間檔位用「其他」自填）
  */
@@ -11,6 +12,11 @@ export const CAMERA_MODELS = {
     photo: ['64MP', '32MP', '24MP', '16MP', '8MP', '4MP'],
     video: ['1296p', '1080p', '720p'],
     videoSec: [3, 300],
+  },
+  'Meidase P60': {
+    photo: ['32MP'],
+    video: ['1296p', '1080p'],
+    videoSec: null,
   },
   'Meidase P60 Pro': {
     photo: ['48MP', '24MP', '16MP', '8MP', '4MP'],

@@ -1,9 +1,11 @@
 // ⚠️ 每次改動 shell 檔案（html/css/js）後都必須改這個版本號（js/app.js 的 APP_VERSION 一起改），
 // 否則已安裝的裝置會一直吃舊快取，更新永遠送不出去。
-const VERSION = 'v9';
+const VERSION = 'v0.1';
 const SHELL_CACHE = `catpatrol-shell-${VERSION}`;
 const TILE_CACHE = 'catpatrol-tiles';
 const TILE_LIMIT = 500;
+const PHOTO_CACHE = 'catpatrol-photos';
+const PHOTO_LIMIT = 80;
 
 const SHELL = [
   '.',
@@ -41,11 +43,11 @@ self.addEventListener('activate', event => {
   })());
 });
 
-/** 圖磚超過上限時丟掉最舊的一批（cache 的插入順序即為最舊在前） */
-async function trimTiles(cache) {
+/** 超過上限時丟掉最舊的一批（cache 的插入順序即為最舊在前） */
+async function trimCache(cache, limit) {
   const keys = await cache.keys();
-  if (keys.length <= TILE_LIMIT) return;
-  await Promise.all(keys.slice(0, keys.length - TILE_LIMIT).map(k => cache.delete(k)));
+  if (keys.length <= limit) return;
+  await Promise.all(keys.slice(0, keys.length - limit).map(k => cache.delete(k)));
 }
 
 self.addEventListener('fetch', event => {
@@ -54,7 +56,24 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(request.url);
 
-  // 雲端 API（同網域 Worker 代轉）：一律走網路，失敗交給上傳佇列處理，絕不快取
+  // 上次巡檢的照片：Drive 檔案不會變，快取優先，山上離線時看得到之前看過（或預先抓過）的
+  if (url.origin === self.location.origin && url.pathname === '/api/photo') {
+    event.respondWith((async () => {
+      const cache = await caches.open(PHOTO_CACHE);
+      const hit = await cache.match(request);
+      if (hit) return hit;
+      const res = await fetch(request);
+      // 只快取成功的；登入過期的轉址或 {ok:false} 不能存
+      if (res.ok && res.type !== 'opaqueredirect') {
+        const body = await res.clone().json().catch(() => null);
+        if (body?.ok) await cache.put(request, res.clone()).then(() => trimCache(cache, PHOTO_LIMIT));
+      }
+      return res;
+    })());
+    return;
+  }
+
+  // 其他雲端 API（同網域 Worker 代轉）：一律走網路，失敗交給上傳佇列處理，絕不快取
   if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
 
   // OSM 圖磚：先給快取、背景更新，巡檢前看過的區域離線仍可見
@@ -63,7 +82,7 @@ self.addEventListener('fetch', event => {
       const cache = await caches.open(TILE_CACHE);
       const hit = await cache.match(request);
       const network = fetch(request).then(res => {
-        if (res.ok) cache.put(request, res.clone()).then(() => trimTiles(cache));
+        if (res.ok) cache.put(request, res.clone()).then(() => trimCache(cache, TILE_LIMIT));
         return res;
       }).catch(() => hit);
       return hit || network;

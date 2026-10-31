@@ -142,7 +142,8 @@ export async function addDevice(device, photoIds = []) {
   return full;
 }
 
-export async function addRecord(record, photoIds = [], queueMeta = {}) {
+/** type：'addRecord' 新紀錄；'updateRecord' 修改已上傳的紀錄（雲端照送來的內容覆蓋） */
+export async function addRecord(record, photoIds = [], queueMeta = {}, type = 'addRecord') {
   await db.put('records', { ...record, photoIds });
 
   const device = await getDevice(record.deviceId);
@@ -180,21 +181,34 @@ export async function addRecord(record, photoIds = [], queueMeta = {}) {
   }
   await db.put('devices', updated);
 
-  // undo：巡檢前的設備現況，上傳前刪除或修改這筆紀錄時用來還原
-  await enqueue('addRecord', { ...record, photoIds }, photoIds, { undo: { device }, ...queueMeta });
+  // undo：巡檢前的設備現況，刪除或修改這筆紀錄時用來還原。
+  // 修改已上傳的紀錄時連同算好的設備現況一起送，雲端不必自己推算「改回去」該是什麼
+  const payload = type === 'updateRecord' ? { ...record, photoIds, deviceState: updated } : { ...record, photoIds };
+  await enqueue(type, payload, photoIds, { undo: { device }, ...queueMeta });
   return updated;
 }
 
+const RECORD_TYPES = ['addRecord', 'updateRecord'];
+
 /**
- * 能不能刪除或修改：還沒上傳、有 undo（舊版建立的沒有），
- * 而且之後沒有同一台（或換上的新相機）還沒上傳的紀錄，否則還原會蓋掉後面那筆的結果。
+ * 能不能修改：佇列裡還留著（已上傳的保留 7 天）、有 undo（舊版建立的沒有）、不是上傳中，
+ * 而且之後沒有同一台（或換上的新相機）的紀錄，否則還原會蓋掉後面那筆的結果。
+ * 已上傳的換機紀錄不能改：雲端已經另起新相機那一列，改了對不回去。
  */
 export function canModifyRecord(item, queue) {
-  if (item.type !== 'addRecord' || !item.undo || !['pending', 'error'].includes(item.status)) return false;
+  if (!RECORD_TYPES.includes(item.type) || !item.undo || item.status === 'uploading') return false;
+  if (item.status === 'done' && item.payload.cameraSwapped) return false;
   const ids = [item.payload.deviceId, item.payload.newDeviceId].filter(Boolean);
-  return !queue.some(q => q.type === 'addRecord' && q.status !== 'done'
+  return !queue.some(q => RECORD_TYPES.includes(q.type) && q.id !== item.id
     && (q.createdMs ?? 0) > (item.createdMs ?? 0) && ids.includes(q.payload.deviceId));
 }
+
+/** 只有還沒上傳過的新紀錄能刪；已上傳過的（包括修改後待上傳的）雲端已經有了，只能改 */
+export const canDeleteRecord = (item, queue) =>
+  item.type === 'addRecord' && item.status !== 'done' && canModifyRecord(item, queue);
+
+/** 這筆是不是已經上傳過（修改它會覆蓋雲端） */
+export const isUploadedRecord = item => item.status === 'done' || item.type === 'updateRecord';
 
 /** 撤銷一筆還沒上傳的巡檢紀錄對本機設備現況的影響（照片與佇列項目由呼叫端決定） */
 export async function revertRecord(item) {

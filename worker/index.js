@@ -2,8 +2,9 @@
  * CATPatrol Worker：/api/* 代轉到 Apps Script，其餘交給 public/ 靜態檔。
  * Apps Script 網址與 token 只存在 Worker 的 secrets，手機上看不到，也不在 repo 裡。
  *
- *   GET  /api/bootstrap → Apps Script ?action=bootstrap
- *   POST /api/write     → Apps Script doPost（body 原封不動轉送）
+ *   GET  /api/bootstrap   → Apps Script ?action=bootstrap
+ *   GET  /api/photo?id=…  → Apps Script ?action=photo&id=…（巡檢時顯示上次的照片）
+ *   POST /api/write       → Apps Script doPost（body 原封不動轉送）
  */
 
 const keys = new Map(); // Access 簽章公鑰快取：kid → CryptoKey
@@ -31,6 +32,11 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
       target.searchParams.set('action', 'bootstrap');
+      return relay(await fetch(target));
+    }
+    if (request.method === 'GET' && url.pathname === '/api/photo') {
+      target.searchParams.set('action', 'photo');
+      target.searchParams.set('id', url.searchParams.get('id') || '');
       return relay(await fetch(target));
     }
     if (request.method === 'POST' && url.pathname === '/api/write') {

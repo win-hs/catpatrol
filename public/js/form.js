@@ -29,11 +29,28 @@ export function require(el, msg) {
   return false;
 }
 
-/** 經緯度：必填、須為單一數字且在範圍內（擋掉把「緯度, 經度」整串貼進同一格） */
-export function requireCoord(el, max, msg) {
-  const v = String(el.value).trim();
-  if (v && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= max) return true;
-  markError(el, msg);
+/**
+ * 座標一格寫「緯度, 經度」（和 Google 地圖複製出來的一樣，貼進 Google 搜尋也能直接用）。
+ * 逗號（全形半形都可）或空白分隔；格式不對回 null。
+ */
+export function parseCoord(text) {
+  const parts = String(text).trim().split(/[\s,，]+/).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [lat, lng] = parts.map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+
+export const formatCoord = (lat, lng) =>
+  (Number.isFinite(lat) && Number.isFinite(lng) ? `${lat}, ${lng}` : '—');
+
+export function requireCoord(el) {
+  if (parseCoord(el.value)) return true;
+  // 最常見的錯：經度寫在前面（台灣經度約 120，超過緯度上限 90）
+  const first = Number(String(el.value).trim().split(/[\s,，]+/)[0]);
+  markError(el, Math.abs(first) > 90
+    ? '緯度要寫在前面，例：23.51234, 120.30772'
+    : '請輸入「緯度, 經度」，例：23.51234, 120.30772，或按 GPS 定位');
   return false;
 }
 

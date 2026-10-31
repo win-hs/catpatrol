@@ -65,6 +65,8 @@ function makeSS() {
 }
 
 const trashed = [];
+const files = {}; // Drive 檔案 id → 內容
+let fileSeq = 0;
 function makeFolder(name) {
   const kids = [];
   const folder = {
@@ -76,7 +78,11 @@ function makeFolder(name) {
       return { hasNext: () => i < f.length, next: () => f[i++].folder };
     },
     createFolder: n => { const f = makeFolder(name + '/' + n); kids.push({ name: n, folder: f }); return f; },
-    createFile: blob => ({ getUrl: () => 'https://drive/' + name + '/' + blob.name }),
+    createFile: blob => {
+      const id = 'FILE' + (++fileSeq);
+      files[id] = blob;
+      return { getUrl: () => `https://drive.google.com/file/d/${id}/view?usp=drivesdk` };
+    },
     getFolders: () => ({ hasNext: () => false }), getFiles: () => ({ hasNext: () => false }),
     setTrashed(b) { folder.trashed = b; trashed.push(name); },
   };
@@ -94,10 +100,16 @@ const ctx = {
   Utilities: {
     formatDate: d => d.toISOString().slice(0, 16).replace('T', ' '),
     base64Decode: s => Buffer.from(s, 'base64'),
-    newBlob: (bytes, type, name) => ({ name }),
+    base64Encode: bytes => Buffer.from(bytes).toString('base64'),
+    newBlob: (bytes, type, name) => ({ name, bytes, type }),
   },
   Session: { getScriptTimeZone: () => 'Asia/Taipei' },
-  DriveApp: { getFolderById: () => root, getFoldersByName: () => ({ hasNext: () => true, next: () => root }), createFolder: () => root },
+  DriveApp: {
+    getFolderById: () => root,
+    getFoldersByName: () => ({ hasNext: () => true, next: () => root }),
+    createFolder: () => root,
+    getFileById: id => ({ getBlob: () => ({ getBytes: () => files[id].bytes, getContentType: () => files[id].type }) }),
+  },
   Logger: { log: m => logs.push(m) },
 };
 vm.createContext(ctx);
@@ -166,17 +178,56 @@ check('old camera 已撤下', oldRow[19] === '已撤下');
 check('new camera keeps 樣點編號 + new SD', newRow && newRow[25] === 'S-01' && newRow[5] === 'Wv7' && newRow[21] === '46MP', JSON.stringify(newRow));
 check('bootstrap: new device carries stationId', boot().devices.find(d => d.id === 'CAM-9').stationId === 'S-01');
 
+// ── 上次照片：bootstrap 給最新一張的檔案 id，photo 只給照片索引裡有的檔案
+post({ action: 'addRecord', photos: [{ name: 'a.jpg', dataBase64: Buffer.from('first').toString('base64') }],
+  payload: { ...rec, recordId: 'REC-P1', deviceId: 'CAM-9', cameraSwapped: false, newDeviceId: '', newCameraModel: '',
+    swapReason: '', configChanged: false, config: null, patrolAt: '2026-11-25 08:00' } });
+post({ action: 'addRecord', photos: [{ name: 'b.jpg', dataBase64: Buffer.from('second').toString('base64') }],
+  payload: { ...rec, recordId: 'REC-P2', deviceId: 'CAM-9', cameraSwapped: false, newDeviceId: '', newCameraModel: '',
+    swapReason: '', configChanged: false, config: null, patrolAt: '2026-11-26 08:00', note: '第二次' } });
+const cam9 = boot().devices.find(d => d.id === 'CAM-9');
+check('bootstrap lastPhotoId = newest photo', cam9.lastPhotoId === `FILE${fileSeq}`, cam9.lastPhotoId);
+let ph = doGet({ parameter: { token: 'T0K', action: 'photo', id: cam9.lastPhotoId } }).body;
+check('photo returns base64 of the file', ph.ok && Buffer.from(ph.data, 'base64').toString() === 'second' && ph.mime === 'image/jpeg', JSON.stringify(ph));
+files.SECRET = { bytes: Buffer.from('not a photo'), type: 'text/plain' };
+ph = doGet({ parameter: { token: 'T0K', action: 'photo', id: 'SECRET' } }).body;
+check('photo refuses files not in 照片索引', ph.ok === false);
+check('photo needs token', doGet({ parameter: { token: 'bad', action: 'photo', id: cam9.lastPhotoId } }).body.ok === false);
+
+// ── 修改已上傳的紀錄：覆蓋紀錄列、照片張數累加；是最新一筆才覆蓋設備現況
+const recCount = sheet('巡檢紀錄').length;
+const upd = { ...rec, recordId: 'REC-P2', deviceId: 'CAM-9', cameraSwapped: false, newDeviceId: '', newCameraModel: '', swapReason: '',
+  configChanged: false, config: null, patrolAt: '2026-11-26 08:00', note: '改過了', batteryPct: 25,
+  deviceState: { sdCard: 'Wv7', batteryType: '鋰電', batteryPct: 25, config: { ...cfg, photoQuality: '46MP' }, lng: 121.1, lat: 23.5,
+    lastInspector: '王小明', running: true, lastNote: '改過了', lastPatrolAt: '2026-11-26 08:00' } };
+check('updateRecord ok', post({ action: 'updateRecord', payload: upd, photos: [{ name: 'c.jpg', dataBase64: 'AA==' }] }).updated === true);
+const updRow = sheet('巡檢紀錄').find(r => r[0] === 'REC-P2');
+check('record overwritten in place (no new row), photo count accumulated',
+  sheet('巡檢紀錄').length === recCount && updRow[19] === '改過了' && updRow[11] === 25 && updRow[17] === 2, JSON.stringify(updRow));
+const cam9Row = sheet('設備').find(r => r[0] === 'CAM-9');
+check('device state overwritten (latest record)', cam9Row[18] === '改過了' && cam9Row[7] === 25 && cam9Row[19] === '電量低', JSON.stringify(cam9Row));
+post({ action: 'updateRecord', photos: [], payload: { ...upd, recordId: 'REC-P1', patrolAt: '2026-11-25 08:00', note: '改舊的',
+  deviceState: { ...upd.deviceState, lastNote: '不該寫進設備' } } });
+check('older record update leaves device alone', sheet('設備').find(r => r[0] === 'CAM-9')[18] === '改過了'
+  && sheet('巡檢紀錄').find(r => r[0] === 'REC-P1')[19] === '改舊的');
+post({ action: 'updateRecord', photos: [], payload: { ...upd, recordId: 'REC-GONE', note: '雲端沒有' } });
+check('update of missing record falls back to add', sheet('巡檢紀錄').some(r => r[0] === 'REC-GONE'));
+
 // ── deleteDevices：刪設備列、巡檢紀錄、照片索引、照片資料夾；白名單不受影響
 addDev('132', 'S-02');
 addDev('CA-78', 'S-03');
 post({ action: 'addRecord', photos: [{ name: 'p.jpg', dataBase64: 'AA==' }], payload: { ...rec, recordId: 'REC-2', deviceId: '132', stationId: 'S-02',
   cameraSwapped: false, newDeviceId: '', newCameraModel: '', swapReason: '', configChanged: false, config: null, patrolAt: '2026-11-21 08:00' } });
-check('test data present', sheet('設備').length === 5 && sheet('巡檢紀錄').length === 3 && sheet('照片索引').length === 2);
+const has = (name, col, id) => sheet(name).some(r => r[col] === id);
+check('test data present', has('設備', 0, '132') && has('設備', 0, 'CA-78') && has('巡檢紀錄', 3, '132') && has('照片索引', 2, '132'));
+const before = { devices: sheet('設備').length, records: sheet('巡檢紀錄').length, photos: sheet('照片索引').length };
 logs.length = 0;
 deleteDevices();
-check('設備 rows 132/CA-78 deleted (case-insensitive Ca-78)', !sheet('設備').some(r => ['132', 'CA-78'].includes(r[0])) && sheet('設備').length === 3);
-check('巡檢紀錄 for 132 deleted, others kept', sheet('巡檢紀錄').length === 2 && sheet('巡檢紀錄')[1][3] === 'CAM-1');
-check('照片索引 for 132 deleted', sheet('照片索引').length === 1);
+check('設備 rows 132/CA-78 deleted (case-insensitive Ca-78)',
+  !has('設備', 0, '132') && !has('設備', 0, 'CA-78') && sheet('設備').length === before.devices - 2);
+check('巡檢紀錄 for 132 deleted, others kept',
+  !has('巡檢紀錄', 3, '132') && sheet('巡檢紀錄').length === before.records - 1 && has('巡檢紀錄', 0, 'REC-1'));
+check('照片索引 for 132 deleted, others kept', !has('照片索引', 2, '132') && sheet('照片索引').length === before.photos - 1);
 check('photo folder of 132 trashed', trashed.some(n => n.endsWith('/132')), JSON.stringify(trashed));
 check('log reports nothing missing', !logs.some(l => String(l).includes('找不到')), JSON.stringify(logs));
 

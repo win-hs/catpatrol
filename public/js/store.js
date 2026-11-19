@@ -71,11 +71,22 @@ export function deviceStatus(d) {
   return '正常';
 }
 
+/** 上次換電池的時間：雲端由巡檢紀錄的「更換電池」推出；從沒換過就是架設（建立）的時間 */
+export const batteryChangedAt = d => d.batteryChangedAt || d.createdAt || '';
+
+/** 電池用了幾天（整數）；不知道換電池時間時為 null */
+export function batteryDays(d) {
+  const days = daysSince(batteryChangedAt(d));
+  return Number.isFinite(days) ? Math.max(0, Math.floor(days)) : null;
+}
+
 export function deviceSummary(d) {
   const status = deviceStatus(d);
   const when = `上次巡檢 ${dateOnly(d.lastPatrolAt)}`;
   if (status === '相機故障') return `${when} · 相機故障或沒電 · ${d.lastInspector || ''}`;
-  return `${when} · 電量 ${d.batteryPct ?? '—'}% · ${d.lastInspector || ''}`;
+  const days = batteryDays(d);
+  const battery = `電量 ${d.batteryPct ?? '—'}%${days != null ? `（電池 ${days} 天）` : ''}`;
+  return `${when} · ${battery} · ${d.lastInspector || ''}`;
 }
 
 /* ---------- 讀取 ---------- */
@@ -159,7 +170,10 @@ export async function addRecord(record, photoIds = [], queueMeta = {}, type = 'a
     updated.prevSdCard = device.sdCard; // 取回的那張變成「上一張」（雲端由巡檢紀錄推出同樣的值）
     updated.sdCard = record.sdNew;
   }
-  if (record.batteryChanged) updated.batteryType = record.batteryTypeNew;
+  if (record.batteryChanged) {
+    updated.batteryType = record.batteryTypeNew;
+    updated.batteryChangedAt = record.patrolAt;
+  }
   if (record.configChanged) updated.config = record.config;
   if (record.locationChanged) { updated.lng = record.lng; updated.lat = record.lat; }
 
@@ -180,6 +194,8 @@ export async function addRecord(record, photoIds = [], queueMeta = {}, type = 'a
       running: true,
       createdBy: record.inspector,
       createdAt: record.patrolAt,
+      // 電池沿用舊相機的（建立時間改成換機時間了，要先記下來）
+      batteryChangedAt: record.batteryChanged ? record.patrolAt : batteryChangedAt(device),
     });
   }
   await db.put('devices', updated);

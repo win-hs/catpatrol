@@ -1,12 +1,12 @@
 /**
  * CATPatrol 雲端後端（Google Apps Script）
  * 部署步驟見同資料夾的 DEPLOY.md。首次請先於編輯器執行 setup() 授權並建立試算表／資料夾；
- * 之後更新程式若有新增欄位，也要再執行一次 setup() 補上標題列。
+ * 之後更新程式若有新增欄位，換版後第一次被呼叫時會自動補上（upgradeSheets_），不必再跑 setup()。
  * App 不直接呼叫這裡：一律經 Cloudflare Worker 代轉，token 只存在 Worker 的 secrets。
  */
 
 const TOKEN = 'CHANGE_ME';               // ← 部署前改成自訂字串，並填入 Cloudflare Worker 的 API_TOKEN
-const VERSION = 'v0.2';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
+const VERSION = 'v0.3';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
@@ -18,11 +18,13 @@ const HEADERS = {
   '設備': ['device_id', 'project_id', 'QR碼內容', '經度', '緯度', '記憶卡編號', '電池類型', '電量%',
     '拍攝模式', '連拍張數', '感度', '間隔秒', '設定備註', '建立人員', '建立時間',
     '最後巡檢時間', '最後巡檢人員', '持續運作', '最後備註', '狀態',
-    '相機型號', '照片畫質', '影片畫質', '影片秒數', '工作時間', '樣點編號'],
+    '相機型號', '照片畫質', '影片畫質', '影片秒數', '工作時間', '樣點編號',
+    '夜間影片秒數', '鐵殼', '上鎖', '遮雨板'],
   '巡檢紀錄': ['record_id', '巡檢時間', 'project_id', 'device_id', '巡檢人員', '持續運作', '更換記憶卡',
     '新記憶卡編號', '取回記憶卡編號', '更換電池', '新電池類型', '電量%', '設定有變動', '新設定摘要',
     '位置有變動', '經度', '緯度', '照片張數', '照片資料夾連結', '備註', '自訂欄位JSON', '上傳時間',
-    '更換相機', '新設備編號', '新相機型號', '更換原因', '樣點編號'],
+    '更換相機', '新設備編號', '新相機型號', '更換原因', '樣點編號',
+    '中間有停', '停止時間', '停止原因'],
   '自訂欄位定義': ['project_id', '欄位名稱', '類型', '選項', '必填', '排序', 'field_id'],
   '照片索引': ['photo_id', 'record_id', 'device_id', '拍攝時間', 'Drive檔案連結', '檔名'],
   // 人工維護：登入 email 對應的姓名（App 紀錄上的巡檢人員）；CATBase 也用這張表當白名單
@@ -35,6 +37,7 @@ const D = {
   mode: 8, burst: 9, sensitivity: 10, interval: 11, configNote: 12, createdBy: 13, createdAt: 14,
   lastPatrolAt: 15, lastInspector: 16, running: 17, lastNote: 18, status: 19,
   cameraModel: 20, photoQuality: 21, videoQuality: 22, videoSec: 23, workHours: 24, stationId: 25,
+  videoSecNight: 26, ironCase: 27, locked: 28, rainCover: 29,
 };
 
 /* ════════ 進入點 ════════ */
@@ -87,13 +90,25 @@ function bootstrap_(user) {
     const id = driveFileId_(r[4]);
     if (id) lastPhoto[r[2]] = id;
   });
-  // 上一張記憶卡＝最近一次換卡時取回的那張；換機時換上的新相機也沿用
+  const devices = rows_(ss, '設備');
+  const created = {};
+  devices.forEach(r => { created[r[D.id]] = cell_(r[D.createdAt]); });
+  // 上一張記憶卡＝最近一次換卡時取回的那張；上次換電池＝最近一次勾「更換電池」的巡檢時間（沒換過由 App 用建立時間）。
+  // 換機時換上的新相機兩者都沿用舊相機的；依巡檢時間排序，才會先算到舊相機的值
   const prevSd = {};
-  rows_(ss, '巡檢紀錄').forEach(r => {
-    if (!isTrue_(r[6])) return;
-    prevSd[r[3]] = r[8];
-    if (isTrue_(r[22]) && r[23]) prevSd[r[23]] = r[8];
-  });
+  const batteryAt = {};
+  rows_(ss, '巡檢紀錄')
+    .map(r => ({ r: r, at: cell_(r[1]) }))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+    .forEach(({ r, at }) => {
+      const id = r[3];
+      if (isTrue_(r[9])) batteryAt[id] = at;
+      if (isTrue_(r[6])) prevSd[id] = r[8];
+      if (isTrue_(r[22]) && r[23]) {
+        if (isTrue_(r[6])) prevSd[r[23]] = r[8];
+        batteryAt[r[23]] = batteryAt[id] || created[id] || '';
+      }
+    });
   return {
     ok: true,
     version: VERSION,
@@ -110,7 +125,7 @@ function bootstrap_(user) {
       order: Number(r[5]) || 0,
       id: r[6],
     })),
-    devices: rows_(ss, '設備').map(r => ({
+    devices: devices.map(r => ({
       id: r[D.id],
       projectId: r[D.projectId],
       qrCode: r[D.qrCode],
@@ -122,15 +137,20 @@ function bootstrap_(user) {
       prevSdCard: prevSd[r[D.id]] || '',
       batteryType: r[D.batteryType],
       batteryPct: numOrNull_(r[D.batteryPct]),
+      batteryChangedAt: batteryAt[r[D.id]] || '',
       config: {
         mode: r[D.mode],
         photoQuality: r[D.photoQuality],
         burst: numOrNull_(r[D.burst]),
         videoQuality: r[D.videoQuality],
         videoSec: numOrNull_(r[D.videoSec]),
+        videoSecNight: numOrNull_(r[D.videoSecNight]),
         sensitivity: r[D.sensitivity],
         interval: numOrNull_(r[D.interval]),
         workHours: r[D.workHours] || '全天',
+        ironCase: boolOrNull_(r[D.ironCase]),
+        locked: boolOrNull_(r[D.locked]),
+        rainCover: boolOrNull_(r[D.rainCover]),
         note: r[D.configNote],
       },
       createdBy: r[D.createdBy],
@@ -265,6 +285,7 @@ function recordRow_(rec, photoCount, folderUrl) {
     JSON.stringify(rec.customFields || {}), now_(),
     !!rec.cameraSwapped, rec.newDeviceId || '', rec.newCameraModel || '',
     rec.swapReason || '', rec.stationId || '',
+    !!rec.stoppedMidway, rec.stoppedAt || '', rec.stopReason || '',
   ];
 }
 
@@ -362,9 +383,13 @@ function writeConfig_(row, cfg) {
   row[D.burst] = blank_(cfg.burst);
   row[D.videoQuality] = cfg.videoQuality || '';
   row[D.videoSec] = blank_(cfg.videoSec);
+  row[D.videoSecNight] = blank_(cfg.videoSecNight);
   row[D.sensitivity] = cfg.sensitivity;
   row[D.interval] = cfg.interval;
   row[D.workHours] = cfg.workHours || '全天';
+  row[D.ironCase] = blank_(cfg.ironCase);
+  row[D.locked] = blank_(cfg.locked);
+  row[D.rainCover] = blank_(cfg.rainCover);
   row[D.configNote] = cfg.note || '';
 }
 
@@ -398,22 +423,39 @@ function getSS_() {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('SS_ID');
   if (id) {
-    try { return SpreadsheetApp.openById(id); } catch (err) { /* 已刪除，重建 */ }
+    let ss = null;
+    try { ss = SpreadsheetApp.openById(id); } catch (err) { /* 已刪除，重建 */ }
+    if (ss) {
+      upgradeSheets_(ss, props);
+      return ss;
+    }
   }
   const ss = SpreadsheetApp.create(SS_NAME);
   props.setProperty('SS_ID', ss.getId());
   initSheets_(ss);
+  // 新試算表自帶的空白「工作表1」（只在新建時刪；已在用的試算表，使用者自己加的分頁不能動）
+  const first = ss.getSheets()[0];
+  if (!HEADERS[first.getName()]) ss.deleteSheet(first);
+  props.setProperty('SHEETS_VERSION', VERSION);
   return ss;
+}
+
+/** 換版後第一次被呼叫時補上新分頁與新欄位標題（以前要記得在編輯器重跑 setup()，常常忘了） */
+function upgradeSheets_(ss, props) {
+  if (props.getProperty('SHEETS_VERSION') === VERSION) return;
+  initSheets_(ss);
+  props.setProperty('SHEETS_VERSION', VERSION);
 }
 
 function initSheets_(ss) {
   Object.keys(HEADERS).forEach(name => {
     const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
-    sheet.getRange(1, 1, 1, HEADERS[name].length).setValues([HEADERS[name]]).setFontWeight('bold');
+    const width = HEADERS[name].length;
+    // 試算表預設只有 26 欄（A–Z），新欄位超出時要先加欄，否則讀寫那些欄會出錯
+    if (sheet.getMaxColumns() < width) sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
+    sheet.getRange(1, 1, 1, width).setValues([HEADERS[name]]).setFontWeight('bold');
     sheet.setFrozenRows(1);
   });
-  const first = ss.getSheets()[0];
-  if (!HEADERS[first.getName()]) ss.deleteSheet(first);
 }
 
 function photoRoot_() {
@@ -482,9 +524,16 @@ function configSummary_(cfg) {
   const parts = [cfg.mode];
   if (cfg.mode !== '影片') parts.push('照片' + (cfg.photoQuality || '—'), '連拍' + blank_(cfg.burst));
   if (cfg.mode === '影片' || cfg.mode === '照片+影片') {
-    parts.push('影片' + (cfg.videoQuality || '—') + ' ' + blank_(cfg.videoSec) + '秒');
+    const sec = cfg.videoSecNight != null && cfg.videoSecNight !== cfg.videoSec
+      ? '日' + blank_(cfg.videoSec) + '秒/夜' + cfg.videoSecNight + '秒'
+      : blank_(cfg.videoSec) + '秒';
+    parts.push('影片' + (cfg.videoQuality || '—') + ' ' + sec);
   }
   parts.push('感度' + cfg.sensitivity, '間隔' + cfg.interval + 's', '工作時間' + (cfg.workHours || '全天'));
+  const guards = [['鐵殼', cfg.ironCase], ['上鎖', cfg.locked], ['遮雨板', cfg.rainCover]];
+  if (guards.some(g => g[1] != null)) {
+    parts.push(guards.map(g => g[0] + (g[1] ? '✓' : g[1] === false ? '✗' : '—')).join(' '));
+  }
   return parts.join(' · ');
 }
 
@@ -500,6 +549,7 @@ function now_() {
 
 const numOrNull_ = v => (v === '' || v == null ? null : Number(v));
 const isTrue_ = v => v === true || String(v).toUpperCase() === 'TRUE';
+const boolOrNull_ = v => (v === '' || v == null ? null : isTrue_(v)); // 空白＝沒填過（舊資料）
 const blank_ = v => (v == null ? '' : v);
 const pad2_ = n => (n < 10 ? '0' + n : String(n));
 

@@ -117,12 +117,14 @@
         </div>
         <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" id="add-burst" value="3" min="1" inputmode="numeric"></div>
       </div>
-      <div class="row" id="add-video-grp" style="margin-top:10px;" hidden>
-        <div><label class="f" style="margin-top:0;">影片畫質</label>
-          <select id="add-video-q"></select>
-          <input type="text" id="add-video-q-other" placeholder="輸入畫質，例：720p" style="margin-top:6px;" hidden>
+      <div id="add-video-grp" style="margin-top:10px;" hidden>
+        <label class="f" style="margin-top:0;">影片畫質</label>
+        <select id="add-video-q"></select>
+        <input type="text" id="add-video-q-other" placeholder="輸入畫質，例：720p" style="margin-top:6px;" hidden>
+        <div class="row" style="margin-top:10px;">
+          <div><label class="f" style="margin-top:0;">日間影片秒數</label><input type="number" id="add-video-sec" min="1" inputmode="numeric"></div>
+          <div><label class="f" style="margin-top:0;">夜間影片秒數</label><input type="number" id="add-video-sec-night" min="1" inputmode="numeric"></div>
         </div>
-        <div><label class="f" style="margin-top:0;">影片秒數</label><input type="number" id="add-video-sec" min="1" inputmode="numeric"></div>
       </div>
       <div class="row" style="margin-top:10px;">
         <div><label class="f" style="margin-top:0;">感度</label>
@@ -140,6 +142,12 @@
           <div><label class="f" style="margin-top:0;">結束</label><input type="time" id="add-hours-end"></div>
         </div>
         <p class="sec-note" style="margin:6px 0 0;">結束早於開始＝跨夜，例如 18:00 到隔天 06:00。</p>
+      </div>
+      <label class="f">現場防護（有的請點亮）</label>
+      <div class="chips">
+        <button type="button" class="chip" data-tgl id="add-iron">鐵殼</button>
+        <button type="button" class="chip" data-tgl id="add-lock">上鎖</button>
+        <button type="button" class="chip" data-tgl id="add-rain">遮雨板</button>
       </div>
       <label class="f">設定備註</label>
       <input type="text" id="add-config-note" placeholder="例：夜間紅外燈設為低功率">
@@ -189,11 +197,6 @@
         <h3>本次巡檢 <span class="auto-chip" id="patrol-meta"></span></h3>
 
         <div class="tgl-row">
-          <span>相機故障或沒電（現場無相機）</span>
-          <button class="tgl" type="button" data-tgl id="pt-down"></button>
-        </div>
-
-        <div class="tgl-row">
           <span>更換相機</span>
           <button class="tgl" type="button" data-tgl data-reveal="#swap-new" id="pt-swap"></button>
         </div>
@@ -218,6 +221,22 @@
             <input type="text" id="pt-sd-new" placeholder="號碼，例：021">
           </div>
           <p class="sec-note" style="margin-top:6px;" id="pt-sd-retrieved"></p>
+        </div>
+
+        <div class="tgl-row">
+          <span>中間有停（沒電或記憶卡滿）</span>
+          <button class="tgl" type="button" data-tgl data-reveal="#stop-new" id="pt-stopped"></button>
+        </div>
+        <div id="stop-new" class="reveal" hidden>
+          <div class="row">
+            <div><label class="f" style="margin-top:0;">停止日期 <span class="req">*</span></label><input type="date" id="pt-stop-date"></div>
+            <div><label class="f" style="margin-top:0;">時間（知道再填）</label><input type="time" id="pt-stop-time"></div>
+          </div>
+          <label class="f">原因</label>
+          <select id="pt-stop-reason">
+            <option>沒電</option><option>記憶卡滿</option><option>其他（寫在備註）</option>
+          </select>
+          <p class="sec-note" style="margin-top:6px;">記憶卡上最後一張照片的時間，就是相機停的時間。</p>
         </div>
 
         <div class="tgl-row">
@@ -254,12 +273,14 @@
             </div>
             <div><label class="f" style="margin-top:0;">連拍張數</label><input type="number" id="pt-burst" min="1" inputmode="numeric"></div>
           </div>
-          <div class="row" id="pt-video-grp" style="margin-top:10px;" hidden>
-            <div><label class="f" style="margin-top:0;">影片畫質</label>
-              <select id="pt-video-q"></select>
-              <input type="text" id="pt-video-q-other" placeholder="輸入畫質，例：720p" style="margin-top:6px;" hidden>
+          <div id="pt-video-grp" style="margin-top:10px;" hidden>
+            <label class="f" style="margin-top:0;">影片畫質</label>
+            <select id="pt-video-q"></select>
+            <input type="text" id="pt-video-q-other" placeholder="輸入畫質，例：720p" style="margin-top:6px;" hidden>
+            <div class="row" style="margin-top:10px;">
+              <div><label class="f" style="margin-top:0;">日間影片秒數</label><input type="number" id="pt-video-sec" min="1" inputmode="numeric"></div>
+              <div><label class="f" style="margin-top:0;">夜間影片秒數</label><input type="number" id="pt-video-sec-night" min="1" inputmode="numeric"></div>
             </div>
-            <div><label class="f" style="margin-top:0;">影片秒數</label><input type="number" id="pt-video-sec" min="1" inputmode="numeric"></div>
           </div>
           <div class="row" style="margin-top:10px;">
             <div><label class="f" style="margin-top:0;">感度</label>
@@ -278,6 +299,12 @@
             </div>
             <p class="sec-note" style="margin:6px 0 0;">結束早於開始＝跨夜，例如 18:00 到隔天 06:00。</p>
           </div>
+          <label class="f">現場防護（有的請點亮）</label>
+          <div class="chips">
+            <button type="button" class="chip" data-tgl id="pt-iron">鐵殼</button>
+            <button type="button" class="chip" data-tgl id="pt-lock">上鎖</button>
+            <button type="button" class="chip" data-tgl id="pt-rain">遮雨板</button>
+          </div>
           <label class="f">設定備註</label>
           <input type="text" id="pt-config-note">
         </div>
@@ -290,6 +317,11 @@
           <label class="f" style="margin-top:0;">新座標（緯度, 經度）</label>
           <input type="text" id="pt-coord" placeholder="例：23.51234, 120.30772">
           <button class="btn sub" type="button" id="pt-gps" style="margin-top:10px;">📍 取得目前 GPS 位置</button>
+        </div>
+
+        <div class="tgl-row">
+          <span>相機故障或沒電（現場無相機）</span>
+          <button class="tgl" type="button" data-tgl id="pt-down"></button>
         </div>
       </div>
 

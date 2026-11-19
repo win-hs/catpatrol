@@ -32,8 +32,9 @@ const state = {
   projects: [{ id: 'P1', name: '測試專案', createdAt: '2026-10-01 10:00', status: '進行中' }],
   fieldDefs: [],
   devices: [
-    dev('CAM-1', 'S-01', 0, 5),
-    dev('CAM-2', 'S-02', 1, 70),
+    dev('CAM-1', 'S-01', 0, 5, { batteryChangedAt: daysAgo(45) }),
+    dev('CAM-2', 'S-02', 1, 70, { config: { ...cfg, mode: '照片+影片', videoQuality: '1080p', videoSec: 30, videoSecNight: 15,
+      ironCase: true, locked: true, rainCover: false } }),
     dev('CAM-3', 'S-03', 2, 100, { lastPhotoId: 'PH-3', prevSdCard: '野08' }),
     dev('CAM-4', 'S-04', 3, 130),
     dev('CAM-5', 'S-05', 4, 10, { running: false, lastNote: '相機被偷，<b>需補</b>' }),
@@ -42,7 +43,7 @@ const state = {
 const writes = [];
 const photoHits = [];
 let expired = false;
-let backendVersion = 'v0.2'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
+let backendVersion = 'v0.3'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
 
 const send = (res, status, body, headers = {}) => {
   res.writeHead(status, { 'Cache-Control': 'no-store', ...headers });

@@ -36,12 +36,25 @@ export const MODEL_OPTIONS = '<option value="">請選擇…</option>'
 const OTHER = '__other';
 const NO_SPEC = { photo: [], video: [], videoSec: null };
 
+/** 現場防護：設定裡的欄位名稱與顯示文字 */
+const GUARDS = [['ironCase', 'iron', '鐵殼'], ['locked', 'lock', '上鎖'], ['rainCover', 'rain', '遮雨板']];
+
 /** 設定摘要：上次巡檢比對卡用（後端 configSummary_ 寫進試算表的格式相同） */
 export function configSummary(cfg = {}) {
   const parts = [cfg.mode || '—'];
   if (cfg.mode !== '影片') parts.push(`照片${cfg.photoQuality || '—'}`, `連拍${cfg.burst ?? '—'}`);
-  if (cfg.mode === '影片' || cfg.mode === '照片+影片') parts.push(`影片${cfg.videoQuality || '—'} ${cfg.videoSec ?? '—'}秒`);
+  if (cfg.mode === '影片' || cfg.mode === '照片+影片') {
+    // 日夜秒數一樣（或舊資料沒有夜間）只寫一個
+    const sec = cfg.videoSecNight != null && cfg.videoSecNight !== cfg.videoSec
+      ? `日${cfg.videoSec ?? '—'}秒/夜${cfg.videoSecNight}秒`
+      : `${cfg.videoSec ?? '—'}秒`;
+    parts.push(`影片${cfg.videoQuality || '—'} ${sec}`);
+  }
   parts.push(`感度${cfg.sensitivity || '—'}`, `間隔${cfg.interval ?? '—'}s`, `工作時間${cfg.workHours || '全天'}`);
+  // 舊資料三項都沒填過就不顯示
+  if (GUARDS.some(([key]) => cfg[key] != null)) {
+    parts.push(GUARDS.map(([key, , label]) => `${label}${cfg[key] ? '✓' : cfg[key] === false ? '✗' : '—'}`).join(' '));
+  }
   return parts.join(' · ');
 }
 
@@ -77,7 +90,9 @@ export function configForm(prefix) {
 
   function applySecRange() {
     const range = spec().videoSec;
-    el('video-sec').placeholder = range ? `${range[0]}–${range[1]}` : '秒';
+    ['video-sec', 'video-sec-night'].forEach(name => {
+      el(name).placeholder = range ? `${range[0]}–${range[1]}` : '秒';
+    });
   }
 
   // 拍攝模式按鈕的 on 狀態由 app.js 的共用點擊處理切換；這裡直接看被點的那顆
@@ -110,6 +125,8 @@ export function configForm(prefix) {
     applySecRange();
     el('burst').value = cfg.burst ?? '';
     el('video-sec').value = cfg.videoSec ?? '';
+    el('video-sec-night').value = cfg.videoSecNight ?? cfg.videoSec ?? ''; // 舊資料沒有夜間：先帶日間的
+    GUARDS.forEach(([key, id]) => el(id).classList.toggle('on', !!cfg[key]));
     el('sens').value = cfg.sensitivity || '中';
     el('interval').value = cfg.interval ?? '';
     const hours = cfg.workHours && cfg.workHours !== '全天' ? cfg.workHours.split('-') : null;
@@ -130,11 +147,13 @@ export function configForm(prefix) {
       burst: photo ? Number(el('burst').value) : null,
       videoQuality: video ? selValue('video-q') : '',
       videoSec: video ? Number(el('video-sec').value) : null,
+      videoSecNight: video ? Number(el('video-sec-night').value) : null,
       sensitivity: el('sens').value,
       interval: Number(el('interval').value),
       workHours: el('hours-on').classList.contains('on')
         ? `${el('hours-start').value}-${el('hours-end').value}`
         : '全天',
+      ...Object.fromEntries(GUARDS.map(([key, id]) => [key, el(id).classList.contains('on')])),
       note: el('config-note').value.trim(),
     };
   }
@@ -146,10 +165,12 @@ export function configForm(prefix) {
     if (m !== '影片') need(selValue('photo-q'), selTarget('photo-q'), '請選擇照片畫質');
     if (m !== '照片') {
       need(selValue('video-q'), selTarget('video-q'), '請選擇影片畫質');
-      const sec = Number(el('video-sec').value);
       const range = spec().videoSec;
-      need(sec > 0 && (!range || (sec >= range[0] && sec <= range[1])), el('video-sec'),
-        range ? `請填 ${range[0]}–${range[1]} 秒` : '請填寫影片秒數');
+      ['video-sec', 'video-sec-night'].forEach(name => {
+        const sec = Number(el(name).value);
+        need(sec > 0 && (!range || (sec >= range[0] && sec <= range[1])), el(name),
+          range ? `請填 ${range[0]}–${range[1]} 秒` : '請填寫影片秒數');
+      });
     }
     if (el('hours-on').classList.contains('on')) {
       need(el('hours-start').value, el('hours-start'), '請填開始時間');

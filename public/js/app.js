@@ -1,4 +1,4 @@
-import { initMap, renderDevices, resizeMap } from './map.js';
+import * as map from './map.js';
 import * as store from './store.js';
 import * as form from './form.js';
 import * as camera from './camera.js';
@@ -7,9 +7,9 @@ import * as api from './api.js';
 import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
 
 // 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v0.2';
+const APP_VERSION = 'v0.3';
 // 這版網頁需要的 Apps Script 版本（code.gs 的 VERSION）；雲端比這舊就在首頁提醒重新部署
-const BACKEND_NEEDED = 'v0.2';
+const BACKEND_NEEDED = 'v0.3';
 let backendVersion = '';
 
 const versionParts = v => String(v || '0').replace(/^v/, '').split('.').map(Number);
@@ -32,6 +32,8 @@ const ptCfg = configForm('pt');
 
 // 正在修改的那筆還沒上傳的巡檢紀錄（佇列項目）；null＝一般新增
 let editing = null;
+// 設備清單／地圖上選取的相機；離開設備分頁就取消
+let selectedId = null;
 
 /* ═══════════ 導覽 ═══════════ */
 
@@ -40,17 +42,20 @@ let editing = null;
  */
 export function go(screenId, { auto = true, deviceId } = {}) {
   if (editing && screenId !== 'scr-patrol') cancelEdit();
+  if (screenId !== 'scr-home') selectedId = null;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === screenId));
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.screen === screenId));
   screens.scrollTop = 0;
-  if (screenId === 'scr-home') { resizeMap(); renderHome(); }
+  if (screenId === 'scr-home') { map.resizeMap(); renderHome(); }
   if (screenId === 'scr-add') refreshAddMeta();
   if (screenId === 'scr-patrol') renderPatrol({ auto: auto && !deviceId, deviceId });
   if (screenId === 'scr-sync') renderSync();
 }
 
+// 在設備分頁選了相機再按「巡檢」＝巡檢那台；沒選就照常依 GPS 選最近的
 document.querySelectorAll('.nav button').forEach(btn => {
-  btn.addEventListener('click', () => go(btn.dataset.screen));
+  btn.addEventListener('click', () => go(btn.dataset.screen,
+    btn.dataset.screen === 'scr-patrol' && selectedId ? { deviceId: selectedId } : undefined));
 });
 
 /* ═══════════ 共用 UI 行為 ═══════════ */
@@ -142,14 +147,14 @@ async function renderHome() {
 
   if (!projects.length) {
     list.innerHTML = '<div class="hint">還沒有任何專案。請點上方的「＋ 新專案」建立第一個。</div>';
-    renderDevices([]);
+    map.renderDevices([]);
     return;
   }
 
   const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
   if (!devices.length) {
     list.innerHTML = '<div class="hint">此專案還沒有設備，點下方「＋ 新增設備」建立第一台。</div>';
-    renderDevices([]);
+    map.renderDevices([]);
     return;
   }
 
@@ -160,12 +165,13 @@ async function renderHome() {
     return `<div class="dev" data-device="${esc(d.id)}">
       <div class="icon">📷</div>
       <div class="info"><b>${esc(store.stationLabel(d))}</b><small>${camera}</small>`
-      + `<small>${esc(store.deviceSummary(d))}</small>${memo}</div>
+      + `<small>${esc(store.deviceSummary(d))}</small>${memo}`
+      + `<button type="button" class="btn small dev-go" data-patrol="${esc(d.id)}">✅ 巡檢這台</button></div>
       <span class="badge ${BADGE_CLASS[status]}">${status}</span>
     </div>`;
   }).join('');
 
-  renderDevices(devices.map(d => ({
+  map.renderDevices(devices.map(d => ({
     id: d.id,
     label: store.stationLabel(d),
     model: d.cameraModel || '',
@@ -175,6 +181,22 @@ async function renderHome() {
     note: store.deviceSummary(d),
     memo: d.lastNote || '',
   })));
+  // 雲端資料更新時清單會重畫：還在的話維持選取
+  if (devices.some(d => d.id === selectedId)) selectDevice(selectedId, { scroll: false });
+  else selectedId = null;
+}
+
+/**
+ * 選取一台相機：清單卡片標亮並出現「巡檢這台」，地圖移過去標藍框；這時按下方「巡檢」也是巡檢這台。
+ * id 為 null＝取消選取、地圖框回全部。
+ * fromMap：在地圖上點的，地圖不必再移；scroll：把地圖捲進畫面（手機上清單在地圖下面）
+ */
+function selectDevice(id, { fromMap = false, scroll = !fromMap } = {}) {
+  selectedId = id;
+  document.querySelectorAll('#device-list .dev').forEach(c => c.classList.toggle('sel', c.dataset.device === id));
+  map.selectDevice(id, !fromMap);
+  if (!id) map.fitAll();
+  if (id && scroll) $('devmap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 $('project-select').addEventListener('change', e => {
@@ -191,9 +213,12 @@ $('project-new').addEventListener('click', async () => {
   await renderHome();
 });
 
+// 點卡片＝選取（再點一次取消）；按卡片裡的「巡檢這台」才進巡檢
 $('device-list').addEventListener('click', e => {
+  const patrol = e.target.closest('[data-patrol]');
+  if (patrol) return go('scr-patrol', { deviceId: patrol.dataset.patrol });
   const card = e.target.closest('[data-device]');
-  if (card) go('scr-patrol', { deviceId: card.dataset.device });
+  if (card) selectDevice(card.dataset.device === selectedId ? null : card.dataset.device);
 });
 
 /* ═══════════ 新增設備 ═══════════ */
@@ -370,7 +395,7 @@ async function loadPatrolDevice(deviceId) {
     ['樣點 / 序號', `${device.stationId || '—'} / ${device.id}`],
     ['相機型號', device.cameraModel || '—'],
     ['記憶卡', `${device.sdCard || '—'}${device.prevSdCard ? `（上一張 ${device.prevSdCard}）` : ''}`],
-    ['電池', `${device.batteryType || '—'} · ${device.batteryPct ?? '—'}%`],
+    ['電池', batteryText(device)],
     ['設定', configSummary(device.config)],
     ['座標', form.formatCoord(device.lat, device.lng)],
     ['備註', device.lastNote || '—'],
@@ -384,15 +409,18 @@ async function loadPatrolDevice(deviceId) {
   $('pt-swap-note').textContent =
     `${store.stationLabel(device)} 的 ${device.id} 會標為「已撤下」，新相機沿用此樣點的位置與設定。`;
 
-  ['pt-down', 'pt-swap', 'pt-sd-changed', 'pt-bat-changed', 'pt-cfg-changed', 'pt-loc-changed']
+  ['pt-down', 'pt-swap', 'pt-sd-changed', 'pt-stopped', 'pt-bat-changed', 'pt-cfg-changed', 'pt-loc-changed']
     .forEach(id => $(id).classList.remove('on'));
-  ['swap-new', 'sd-new', 'bat-new', 'cfg-new', 'loc-new'].forEach(id => { $(id).hidden = true; });
+  ['swap-new', 'sd-new', 'stop-new', 'bat-new', 'cfg-new', 'loc-new'].forEach(id => { $(id).hidden = true; });
 
   $('pt-new-id').value = '';
   $('pt-new-model').value = '';
   $('pt-swap-reason').value = '';
   $('pt-sd-new-prefix').value = form.sdPrefixOf(device.sdCard);
   $('pt-sd-new').value = '';
+  $('pt-stop-date').value = '';
+  $('pt-stop-time').value = '';
+  $('pt-stop-reason').selectedIndex = 0;
   // 電量預設沿用上次，不一樣再改
   $('pt-battery-pct').value = [100, 75, 50, 25].includes(device.batteryPct) ? String(device.batteryPct) : '';
   $('pt-note').value = '';
@@ -417,6 +445,13 @@ async function loadPatrolDevice(deviceId) {
   patrolTouched = false;
 }
 
+/** 例：鋰電 · 75% · 已用 45 天（2026-10-05 換） */
+function batteryText(device) {
+  const days = store.batteryDays(device);
+  const since = days == null ? '' : ` · 已用 ${days} 天（${store.dateOnly(store.batteryChangedAt(device))} 換）`;
+  return `${device.batteryType || '—'} · ${device.batteryPct ?? '—'}%${since}`;
+}
+
 /** 比對卡左邊：醒目的大字樣點編號（上次的照片先不顯示，後端 /api/photo 保留著） */
 function renderLastVisual(device) {
   $('last-station').textContent = store.stationLabel(device);
@@ -438,6 +473,13 @@ function fillFromRecord(p, device) {
     const { prefix, num } = splitSd(p.sdNew);
     $('pt-sd-new-prefix').value = prefix;
     $('pt-sd-new').value = num;
+  }
+  set('pt-stopped', p.stoppedMidway, 'stop-new');
+  if (p.stoppedMidway) {
+    const [day, time = ''] = String(p.stoppedAt || '').split(' ');
+    $('pt-stop-date').value = day;
+    $('pt-stop-time').value = time;
+    $('pt-stop-reason').value = p.stopReason;
   }
   set('pt-bat-changed', p.batteryChanged, 'bat-new');
   if (p.batteryChanged) $('pt-bat-type').value = p.batteryTypeNew;
@@ -495,7 +537,9 @@ $('pt-save').addEventListener('click', async () => {
   const newId = $('pt-new-id').value.trim();
   const newModel = $('pt-new-model').value;
   const sdChanged = $('pt-sd-changed').classList.contains('on');
+  const stopped = $('pt-stopped').classList.contains('on');
   const locChanged = $('pt-loc-changed').classList.contains('on');
+  const patrolAt = editing ? editing.payload.patrolAt : store.stamp();
 
   const model = swapped && newModel ? newModel : device.cameraModel;
   ptCfg.setModel(model); // 選了新型號又關掉「更換相機」時，退回原型號的選項
@@ -515,6 +559,18 @@ $('pt-save').addEventListener('click', async () => {
     }
   }
   if (sdChanged) ok = form.require($('pt-sd-new'), '請輸入新記憶卡號碼') && ok;
+  if (stopped) {
+    // 停的時間要落在上次巡檢和這次之間（日期格式 YYYY-MM-DD 可以直接比大小）
+    const day = $('pt-stop-date').value;
+    const since = store.dateOnly(device.lastPatrolAt);
+    if (!day) {
+      form.markError($('pt-stop-date'), '請填停止日期');
+      ok = false;
+    } else if (day > store.dateOnly(patrolAt) || (since && day < since)) {
+      form.markError($('pt-stop-date'), `要在上次巡檢（${since || '—'}）到今天之間`);
+      ok = false;
+    }
+  }
   if (cfgChanged) ok = ptCfg.validate() && ok;
   if (locChanged) {
     ok = form.requireCoord($('pt-coord')) && ok;
@@ -524,7 +580,7 @@ $('pt-save').addEventListener('click', async () => {
 
   const record = {
     recordId: editing ? editing.payload.recordId : store.makeRecordId(),
-    patrolAt: editing ? editing.payload.patrolAt : store.stamp(),
+    patrolAt,
     projectId: device.projectId,
     deviceId,
     stationId: device.stationId || '',
@@ -537,6 +593,9 @@ $('pt-save').addEventListener('click', async () => {
     sdChanged,
     sdNew: sdChanged ? form.sdValue($('pt-sd-new-prefix'), $('pt-sd-new')) : '',
     sdRetrieved: sdChanged ? (device.sdCard || '') : '',
+    stoppedMidway: stopped,
+    stoppedAt: stopped ? [$('pt-stop-date').value, $('pt-stop-time').value].filter(Boolean).join(' ') : '',
+    stopReason: stopped ? $('pt-stop-reason').value : '',
     batteryChanged: $('pt-bat-changed').classList.contains('on'),
     batteryTypeNew: $('pt-bat-changed').classList.contains('on') ? $('pt-bat-type').value : '',
     batteryPct: Number($('pt-battery-pct').value),
@@ -777,7 +836,7 @@ async function refreshFromCloud() {
     // Apps Script 只存檔沒「部署新版本」時，網址上跑的還是舊程式：新欄位（例如樣點編號）不會出現
     if (!backendVersion || olderThan(backendVersion, BACKEND_NEEDED)) {
       setCloudHint(`⚠️ 雲端的 Apps Script 還是舊版（${backendVersion || 'v0.1 以前'}，需要 ${BACKEND_NEEDED}）`
-        + '，樣點編號等新功能不會生效。請到 Apps Script「管理部署作業」把現有的部署改成新版本。', true);
+        + '，新功能（例如夜間影片秒數、中間有停）不會存進試算表。請到 Apps Script「管理部署作業」把現有的部署改成新版本。', true);
     } else {
       setCloudHint(`☁️ 已與雲端同步（${store.stamp().slice(11)}）`);
     }
@@ -830,7 +889,10 @@ document.addEventListener('visibilitychange', () => {
 sync.setOnChange(updateSyncChip);
 
 $('app-ver').textContent = APP_VERSION;
-initMap();
+map.initMap({
+  onSelect: id => selectDevice(id, { fromMap: true }),
+  onPatrol: id => go('scr-patrol', { deviceId: id }),
+});
 try {
   await renderHome();
   await updateSyncChip();

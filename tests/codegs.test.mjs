@@ -97,7 +97,7 @@ function makeFolder(name) {
   return folder;
 }
 const root = makeFolder('CATPatrol_照片');
-const props = {};
+const props = { API_TOKEN: 'T0K' }; // v0.4 起 token 放在指令碼屬性
 const logs = [];
 const ctx = {
   console,
@@ -121,8 +121,7 @@ const ctx = {
   Logger: { log: m => logs.push(m) },
 };
 vm.createContext(ctx);
-const src = fs.readFileSync(path.join(here, '../apps-script/code.gs'), 'utf8')
-  .replace("const TOKEN = 'CHANGE_ME';", "const TOKEN = 'T0K';");
+const src = fs.readFileSync(path.join(here, '../apps-script/code.gs'), 'utf8');
 vm.runInContext(src + '\nglobalThis.__api = { doGet, doPost, setup, clearAllData, deleteDevices, D, HEADERS, configSummary_ };', ctx);
 const { doGet, doPost, setup, clearAllData, deleteDevices, D, HEADERS, configSummary_ } = ctx.__api;
 
@@ -177,6 +176,15 @@ check('bootstrap reports backend version', /^v\d+\.\d+$/.test(boot().version), b
 check('unknown email: name blank', boot('nobody@x.org').me.name === '');
 
 check('wrong token rejected', post({ action: 'addProject', payload: { id: 'P1', name: 'x' } }, { token: 'bad' }).error === 'token 不正確');
+check('code has no token literal (pasting a new version needs no edit)', !/const TOKEN\b/.test(src) && !src.includes('CHANGE_ME'));
+delete props.API_TOKEN;
+const noTok = boot();
+check('token property missing: clear message on GET and POST, nothing written',
+  noTok.ok === false && noTok.error.includes('指令碼屬性') && noTok.error.includes('API_TOKEN')
+  && post({ action: 'addProject', payload: { id: 'PX', name: 'x' } }).error.includes('API_TOKEN')
+  && !sheet('專案').some(r => r[0] === 'PX'), JSON.stringify(noTok));
+check('token property missing: empty token does not pass', post({ action: 'addProject', payload: { id: 'PX', name: 'x' } }, { token: '' }).ok === false);
+props.API_TOKEN = 'T0K';
 check('addProject ok', post({ action: 'addProject', payload: { id: 'P1', name: '玉山', createdAt: '2026-10-25 10:00' } }).ok);
 
 const cfg = { mode: '照片', photoQuality: '32MP', burst: 3, videoQuality: '', videoSec: null, sensitivity: '中', interval: 0, workHours: '全天', note: '' };
@@ -272,6 +280,28 @@ post({ action: 'addRecord', photos: [], payload: { ...rec, recordId: 'REC-S', de
 const sRow = sheet('巡檢紀錄').find(r => r[0] === 'REC-S');
 check('record row: 中間有停/停止時間/停止原因', sRow[27] === true && sRow[28] === '2026-11-20 14:30' && sRow[29] === '沒電', JSON.stringify(sRow.slice(26)));
 check('records without stop: 中間有停 FALSE, blanks', sheet('巡檢紀錄').find(r => r[0] === 'REC-B1').slice(27).join('|') === 'false||');
+
+// ── bootstrap 帶全部巡檢紀錄（履歷與統計用），依巡檢時間排序
+const bRecs = boot().records;
+const times = bRecs.map(r => r.patrolAt);
+check('bootstrap records: all rows, sorted by patrol time',
+  bRecs.length === sheet('巡檢紀錄').length - 1 && times.every((t, i) => i === 0 || times[i - 1] <= t), JSON.stringify(times));
+const bSwap = bRecs.find(r => r.recordId === 'REC-1');
+check('bootstrap record: swap fields, down camera, SD in/out, booleans',
+  bSwap.cameraSwapped === true && bSwap.newDeviceId === 'CAM-9' && bSwap.swapReason === '進水故障' && bSwap.running === false
+  && bSwap.sdChanged === true && bSwap.sdNew === 'Wv7' && bSwap.sdRetrieved === '野12' && bSwap.batteryChanged === false
+  && bSwap.configChanged === true && bSwap.locationChanged === false && bSwap.stationId === 'S-01' && bSwap.inspector === '王小明'
+  && bSwap.projectId === 'P1' && bSwap.note === '舊機故障', JSON.stringify(bSwap));
+const bStop = bRecs.find(r => r.recordId === 'REC-S');
+check('bootstrap record: 中間有停 + battery pct number',
+  bStop.stoppedMidway === true && bStop.stoppedAt === '2026-11-20 14:30' && bStop.stopReason === '沒電' && bStop.batteryPct === 100
+  && bRecs.find(r => r.recordId === 'REC-B1').stoppedMidway === false && bRecs.find(r => r.recordId === 'REC-B1').batteryTypeNew === '鋰電',
+  JSON.stringify(bStop));
+// 試算表把日期字串轉成日期格時，讀回來要是同一個格式（停止時間只填日期也一樣）
+// Date 要在 vm 裡建立，code.gs 的 instanceof Date 才認得
+ss.getSheetByName('巡檢紀錄')._data.find(r => r[0] === 'REC-S')[28] = vm.runInContext("new Date('2026-11-20T00:00:00Z')", ctx);
+check('bootstrap record: date cells formatted like strings', boot().records.find(r => r.recordId === 'REC-S').stoppedAt === '2026-11-20 00:00');
+ss.getSheetByName('巡檢紀錄')._data.find(r => r[0] === 'REC-S')[28] = '2026-11-20 14:30';
 
 // ── deleteDevices：刪設備列、巡檢紀錄、照片索引、照片資料夾；白名單不受影響
 addDev('132', 'S-02');

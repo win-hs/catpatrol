@@ -3,10 +3,11 @@
  * 部署步驟見同資料夾的 DEPLOY.md。首次請先於編輯器執行 setup() 授權並建立試算表／資料夾；
  * 之後更新程式若有新增欄位，換版後第一次被呼叫時會自動補上（upgradeSheets_），不必再跑 setup()。
  * App 不直接呼叫這裡：一律經 Cloudflare Worker 代轉，token 只存在 Worker 的 secrets。
+ * token 存在「專案設定 → 指令碼屬性」的 API_TOKEN（v0.4 起），貼新版程式碼不必再改任何一行。
  */
 
-const TOKEN = 'CHANGE_ME';               // ← 部署前改成自訂字串，並填入 Cloudflare Worker 的 API_TOKEN
-const VERSION = 'v0.3';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
+const TOKEN_PROP = 'API_TOKEN';          // 指令碼屬性名稱；值要和 Cloudflare Worker 的 API_TOKEN 一樣
+const VERSION = 'v0.4';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
@@ -42,9 +43,17 @@ const D = {
 
 /* ════════ 進入點 ════════ */
 
+/** token 不對時回傳錯誤訊息，對了回傳空字串 */
+function tokenError_(given) {
+  const token = PropertiesService.getScriptProperties().getProperty(TOKEN_PROP);
+  if (!token) return '雲端還沒設定 token：請到 Apps Script「專案設定 → 指令碼屬性」新增 ' + TOKEN_PROP;
+  return given === token ? '' : 'token 不正確';
+}
+
 function doGet(e) {
   try {
-    if (e.parameter.token !== TOKEN) return json_({ ok: false, error: 'token 不正確' });
+    const bad = tokenError_(e.parameter.token);
+    if (bad) return json_({ ok: false, error: bad });
     if (e.parameter.action === 'bootstrap') return json_(bootstrap_(e.parameter.user));
     if (e.parameter.action === 'photo') return json_(photo_(e.parameter.id));
     return json_({ ok: false, error: '未知的 action：' + e.parameter.action });
@@ -59,7 +68,8 @@ function doPost(e) {
     lock.waitLock(30000);
     const body = JSON.parse(e.postData.contents);
     // Cloudflare Worker 把 token 放在網址參數（不必解析整包照片資料）；body.token 為舊版 App 相容
-    if ((e.parameter.token || body.token) !== TOKEN) return json_({ ok: false, error: 'token 不正確' });
+    const bad = tokenError_(e.parameter.token || body.token);
+    if (bad) return json_({ ok: false, error: bad });
 
     const handlers = {
       addProject: addProject_,
@@ -97,18 +107,18 @@ function bootstrap_(user) {
   // 換機時換上的新相機兩者都沿用舊相機的；依巡檢時間排序，才會先算到舊相機的值
   const prevSd = {};
   const batteryAt = {};
-  rows_(ss, '巡檢紀錄')
+  const records = rows_(ss, '巡檢紀錄')
     .map(r => ({ r: r, at: cell_(r[1]) }))
-    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-    .forEach(({ r, at }) => {
-      const id = r[3];
-      if (isTrue_(r[9])) batteryAt[id] = at;
-      if (isTrue_(r[6])) prevSd[id] = r[8];
-      if (isTrue_(r[22]) && r[23]) {
-        if (isTrue_(r[6])) prevSd[r[23]] = r[8];
-        batteryAt[r[23]] = batteryAt[id] || created[id] || '';
-      }
-    });
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  records.forEach(({ r, at }) => {
+    const id = r[3];
+    if (isTrue_(r[9])) batteryAt[id] = at;
+    if (isTrue_(r[6])) prevSd[id] = r[8];
+    if (isTrue_(r[22]) && r[23]) {
+      if (isTrue_(r[6])) prevSd[r[23]] = r[8];
+      batteryAt[r[23]] = batteryAt[id] || created[id] || '';
+    }
+  });
   return {
     ok: true,
     version: VERSION,
@@ -161,6 +171,32 @@ function bootstrap_(user) {
       lastNote: r[D.lastNote],
       retired: r[D.status] === RETIRED,
       lastPhotoId: lastPhoto[r[D.id]] || '',
+    })),
+    // 全部巡檢紀錄（依巡檢時間排序）：App 的相機履歷與統計用，離線也看得到
+    records: records.map(({ r, at }) => ({
+      recordId: r[0],
+      patrolAt: at,
+      projectId: r[2],
+      deviceId: r[3],
+      inspector: r[4],
+      running: r[5] !== false && String(r[5]).toUpperCase() !== 'FALSE',
+      sdChanged: isTrue_(r[6]),
+      sdNew: r[7],
+      sdRetrieved: r[8],
+      batteryChanged: isTrue_(r[9]),
+      batteryTypeNew: r[10],
+      batteryPct: numOrNull_(r[11]),
+      configChanged: isTrue_(r[12]),
+      locationChanged: isTrue_(r[14]),
+      note: r[19],
+      cameraSwapped: isTrue_(r[22]),
+      newDeviceId: r[23],
+      newCameraModel: r[24],
+      swapReason: r[25],
+      stationId: r[26],
+      stoppedMidway: isTrue_(r[27]),
+      stoppedAt: cell_(r[28]),
+      stopReason: r[29],
     })),
   };
 }

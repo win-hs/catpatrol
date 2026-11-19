@@ -41,6 +41,8 @@
       <span><i style="background:#7b2cbf;"></i>故障/沒電</span>
     </div>
 
+    <button class="btn sub pack-open" type="button" data-go="scr-pack">🎒 出發準備：這趟要帶什麼</button>
+
     <div id="device-list"></div>
 
     <button class="btn" data-go="scr-add" style="margin-top:8px;">＋ 新增設備</button>
@@ -388,12 +390,41 @@
 
   </section>
 
+  <!-- ═══════════ 出發準備 ═══════════ -->
+  <section class="screen" id="scr-pack">
+    <h2 class="pg"><button class="back" type="button" data-go="scr-home" aria-label="回設備清單">‹</button>🎒 出發準備</h2>
+    <div class="card take-card" id="pack-summary"></div>
+    <div class="seg" id="pack-presets"></div>
+    <div class="card pick-list" id="pack-list"></div>
+    <p class="foot">要換電池＝上次電量 ≤ 50%，或相機故障／沒電（備機和電池都帶）；外接電源的不算。記憶卡每台一張。
+      鐵殼、鎖、遮雨板只算巡檢時記為「沒有」的。</p>
+  </section>
+
+  <!-- ═══════════ 統計 ═══════════ -->
+  <section class="screen" id="scr-stats">
+    <h2 class="pg" id="stats-title">統計</h2>
+    <div class="seg" id="stats-tabs">
+      <button type="button" data-tab="down" class="on">漏拍</button>
+      <button type="button" data-tab="life">續航</button>
+      <button type="button" data-tab="work">工作量</button>
+    </div>
+    <div class="monthbar" id="stats-period">
+      <button class="arr" type="button" id="stats-prev" aria-label="往前">‹</button>
+      <div class="m" id="stats-label"></div>
+      <button class="arr" type="button" id="stats-next" aria-label="往後">›</button>
+      <button class="btn small sub" type="button" id="stats-span">看全年</button>
+    </div>
+    <div class="cloud-hint warn" id="stats-note" hidden></div>
+    <div id="stats-body"></div>
+  </section>
+
 </main>
 
 <nav class="nav">
   <button class="active" data-screen="scr-home"><span class="ic">🏠</span>設備</button>
   <button data-screen="scr-add"><span class="ic">➕</span>新增</button>
   <button data-screen="scr-patrol"><span class="ic">✅</span>巡檢</button>
+  <button data-screen="scr-stats"><span class="ic">📊</span>統計</button>
   <button data-screen="scr-sync"><span class="ic">☁️</span>同步</button>
 </nav>
 

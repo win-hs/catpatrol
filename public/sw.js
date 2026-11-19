@@ -1,6 +1,6 @@
 // ⚠️ 每次改動 shell 檔案（html/css/js）後都必須改這個版本號（js/app.js 的 APP_VERSION 一起改），
 // 否則已安裝的裝置會一直吃舊快取，更新永遠送不出去。
-const VERSION = 'v0.3';
+const VERSION = 'v0.4';
 const SHELL_CACHE = `catpatrol-shell-${VERSION}`;
 const TILE_CACHE = 'catpatrol-tiles';
 const TILE_LIMIT = 500;
@@ -19,6 +19,7 @@ const SHELL = [
   'js/cam-config.js',
   'js/api.js',
   'js/sync.js',
+  'js/stats.js',
   'lib/leaflet/leaflet.js',
   'lib/leaflet/leaflet.css',
   'icons/icon-192.png',

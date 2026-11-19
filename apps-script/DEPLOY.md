@@ -16,17 +16,17 @@ Apps Script 網址和 token 只存在 Cloudflare 後台，手機上看不到。
 2. 左上角點「**新增專案**」
 3. 專案名稱點一下改成 `CATPatrol 後端`（左上角預設是「未命名專案」）
 
-## 2. 貼上程式碼
+## 2. 貼上程式碼並設定 token
 
 1. 編輯器中間預設有一個 `Code.gs`（或 `程式碼.gs`），把裡面的內容**全部刪掉**
-2. 打開本資料夾的 [`code.gs`](code.gs)，**全選複製**，貼進編輯器
-3. 找到這一行（約第 8 行）：
-   ```js
-   const TOKEN = 'CHANGE_ME';
-   ```
-   把 `CHANGE_ME` 改成**你自訂的一串長一點的亂碼**（例如 `cp-7Hq2-xR9m-2026`）。
-   這串字等一下要填進 Cloudflare，用來擋掉不相干的人亂送資料。**請記下來。**
-4. 按 💾 儲存（Ctrl+S）
+2. 打開本資料夾的 [`code.gs`](code.gs)，**全選複製**，貼進編輯器，按 💾 儲存（Ctrl+S）
+3. 左邊齒輪 ⚙️「**專案設定**」→ 拉到最下面「**指令碼屬性**」→「**新增指令碼屬性**」：
+   | 屬性 | 值 |
+   |---|---|
+   | `API_TOKEN` | **你自訂的一串長一點的亂碼**（例如 `cp-7Hq2-xR9m-2026`） |
+
+   按「**儲存指令碼屬性**」。這串字等一下要填進 Cloudflare，用來擋掉不相干的人亂送資料。**請記下來。**
+   （token 不寫在程式碼裡，之後貼新版程式碼不必再改任何一行。）
 
 ## 3. 首次授權並建立試算表
 
@@ -70,7 +70,7 @@ Apps Script 網址和 token 只存在 Cloudflare 後台，手機上看不到。
    | Variable name | Value |
    |---|---|
    | `APPS_SCRIPT_URL` | 第 4 步的網頁應用程式網址 |
-   | `API_TOKEN` | 第 2 步自訂的那串字 |
+   | `API_TOKEN` | 第 2 步指令碼屬性 `API_TOKEN` 的值 |
 3. 按「**Deploy**」讓設定生效
 
 完成。巡檢人員的手機什麼都不用設定，登入後就能上傳。
@@ -81,10 +81,15 @@ Apps Script 網址和 token 只存在 Cloudflare 後台，手機上看不到。
 ## 之後修改程式碼時
 
 改完 `code.gs` 後要重新部署才會生效：
-1. 貼上新程式碼後，**記得把 TOKEN 改回你的那串字**（新程式碼裡是 `CHANGE_ME`）→ 儲存
+1. 點一下編輯器裡的程式碼，**Ctrl+A 全選 → Delete 刪光**（確定整個檔案是空的），再貼上新程式碼 → 儲存。
+   不要貼在舊程式碼下面，否則會出現「Identifier '…' has already been declared」
 2. 「部署」→「**管理部署作業**」→ 右上角 ✏️ 鉛筆 →「版本」選「**新版本**」→「部署」
 
-**網址不會變**，Cloudflare 不用重設。（換了 TOKEN 才需要同步更新 Cloudflare 的 `API_TOKEN`。）
+**網址不會變**，Cloudflare 不用重設。（換了 token 才需要同步更新 Cloudflare 的 `API_TOKEN`。）
+
+> **從 v0.3 以前換到 v0.4 時（只做一次）**：程式碼裡不再有 `const TOKEN = …` 那一行，
+> 要先照第 2 步第 3 點新增指令碼屬性 `API_TOKEN`，值＝你原本寫在程式碼裡的那串（Cloudflare 不用改）。
+> 沒設的話 App 會顯示「雲端還沒設定 token」。
 
 新版程式有新增欄位時，**第一次被 App 呼叫就會自動補上欄位與標題**（v0.3 起），不必再到編輯器跑 `setup()`。
 新欄位一律加在最右邊；如果你在試算表最右邊自己加過欄位，換版前先搬開，免得被標題蓋掉
@@ -113,7 +118,9 @@ App 用 Cloudflare 登入的 email 認人，紀錄上的「巡檢人員」顯示
 
 | 症狀 | 原因與處理 |
 |---|---|
-| App 顯示「token 不正確」 | Cloudflare 的 `API_TOKEN` 與 `code.gs` 的 TOKEN 不一致（常見原因：貼新版程式碼後忘了把 TOKEN 改回來） |
+| App 顯示「token 不正確」 | Cloudflare 的 `API_TOKEN` 與 Apps Script 指令碼屬性的 `API_TOKEN` 不一致 |
+| App 顯示「雲端還沒設定 token」 | Apps Script「專案設定 → 指令碼屬性」沒有 `API_TOKEN`（v0.4 起 token 改放這裡，換版後要新增一次） |
+| 存檔時「Identifier '…' has already been declared」 | 新程式碼貼在舊程式碼下面（或貼了兩次）→ 全選刪光、只貼一份 |
 | App 顯示「Worker 尚未設定 APPS_SCRIPT_URL / API_TOKEN」 | 第 5 步的兩筆 Secret 沒設，或名稱打錯 |
 | App 顯示「Apps Script 回傳的不是 JSON」 | 部署時「誰可以存取」沒選「所有人」 |
 | App 顯示「登入已過期」 | 到「同步」分頁按「重新登入」，用白名單 email 收驗證碼 |

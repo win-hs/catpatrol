@@ -4,12 +4,13 @@ import * as form from './form.js';
 import * as camera from './camera.js';
 import * as sync from './sync.js';
 import * as api from './api.js';
+import * as stats from './stats.js';
 import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
 
 // 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v0.3';
+const APP_VERSION = 'v0.4';
 // 這版網頁需要的 Apps Script 版本（code.gs 的 VERSION）；雲端比這舊就在首頁提醒重新部署
-const BACKEND_NEEDED = 'v0.3';
+const BACKEND_NEEDED = 'v0.4';
 let backendVersion = '';
 
 const versionParts = v => String(v || '0').replace(/^v/, '').split('.').map(Number);
@@ -34,6 +35,11 @@ const ptCfg = configForm('pt');
 let editing = null;
 // 設備清單／地圖上選取的相機；離開設備分頁就取消
 let selectedId = null;
+// 打開履歷的相機（只會是選取中的那台）；historyAll＝顯示全部筆數
+let historyId = null;
+let historyAll = false;
+// 從統計點樣點回到清單時，畫好後把那張卡片捲進畫面
+let scrollToSelected = false;
 
 /* ═══════════ 導覽 ═══════════ */
 
@@ -44,12 +50,16 @@ export function go(screenId, { auto = true, deviceId } = {}) {
   if (editing && screenId !== 'scr-patrol') cancelEdit();
   if (screenId !== 'scr-home') selectedId = null;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === screenId));
-  document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.screen === screenId));
+  // 出發準備是從設備分頁進去的，底下仍亮「設備」
+  const navId = screenId === 'scr-pack' ? 'scr-home' : screenId;
+  document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.screen === navId));
   screens.scrollTop = 0;
   if (screenId === 'scr-home') { map.resizeMap(); renderHome(); }
   if (screenId === 'scr-add') refreshAddMeta();
   if (screenId === 'scr-patrol') renderPatrol({ auto: auto && !deviceId, deviceId });
   if (screenId === 'scr-sync') renderSync();
+  if (screenId === 'scr-pack') renderPack({ reset: true });
+  if (screenId === 'scr-stats') renderStats();
 }
 
 // 在設備分頁選了相機再按「巡檢」＝巡檢那台；沒選就照常依 GPS 選最近的
@@ -166,7 +176,8 @@ async function renderHome() {
       <div class="icon">📷</div>
       <div class="info"><b>${esc(store.stationLabel(d))}</b><small>${camera}</small>`
       + `<small>${esc(store.deviceSummary(d))}</small>${memo}`
-      + `<button type="button" class="btn small dev-go" data-patrol="${esc(d.id)}">✅ 巡檢這台</button></div>
+      + `<div class="acts"><button type="button" class="btn small" data-patrol="${esc(d.id)}">✅ 巡檢這台</button>`
+      + `<button type="button" class="btn small ghost" data-hist="${esc(d.id)}">📜 履歷 ▾</button></div></div>
       <span class="badge ${BADGE_CLASS[status]}">${status}</span>
     </div>`;
   }).join('');
@@ -181,9 +192,16 @@ async function renderHome() {
     note: store.deviceSummary(d),
     memo: d.lastNote || '',
   })));
-  // 雲端資料更新時清單會重畫：還在的話維持選取
-  if (devices.some(d => d.id === selectedId)) selectDevice(selectedId, { scroll: false });
-  else selectedId = null;
+  // 雲端資料更新時清單會重畫：還在的話維持選取（履歷也重畫，雲端可能有新紀錄）
+  if (devices.some(d => d.id === selectedId)) {
+    selectDevice(selectedId, { scroll: false });
+    await showHistory();
+    if (scrollToSelected) selectedCard()?.scrollIntoView({ block: 'start' });
+  } else {
+    selectedId = null;
+    closeHistory();
+  }
+  scrollToSelected = false;
 }
 
 /**
@@ -192,8 +210,10 @@ async function renderHome() {
  * fromMap：在地圖上點的，地圖不必再移；scroll：把地圖捲進畫面（手機上清單在地圖下面）
  */
 function selectDevice(id, { fromMap = false, scroll = !fromMap } = {}) {
+  if (String(id) !== String(historyId)) closeHistory();
   selectedId = id;
-  document.querySelectorAll('#device-list .dev').forEach(c => c.classList.toggle('sel', c.dataset.device === id));
+  // 卡片上的 data-device 是字串，設備序號在試算表可能是數字
+  document.querySelectorAll('#device-list .dev').forEach(c => c.classList.toggle('sel', id != null && c.dataset.device === String(id)));
   map.selectDevice(id, !fromMap);
   if (!id) map.fitAll();
   if (id && scroll) $('devmap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -213,12 +233,409 @@ $('project-new').addEventListener('click', async () => {
   await renderHome();
 });
 
-// 點卡片＝選取（再點一次取消）；按卡片裡的「巡檢這台」才進巡檢
+// 點卡片＝選取（再點一次取消）；按卡片裡的「巡檢這台」才進巡檢、「履歷」展開歷次巡檢
 $('device-list').addEventListener('click', e => {
   const patrol = e.target.closest('[data-patrol]');
   if (patrol) return go('scr-patrol', { deviceId: patrol.dataset.patrol });
+  const hist = e.target.closest('[data-hist]');
+  if (hist) return toggleHistory(hist.dataset.hist);
+  if (e.target.closest('.hist')) {
+    // 點履歷內容不取消選取；「顯示較早的」展開全部
+    if (e.target.closest('[data-hist-all]')) { historyAll = true; showHistory(); }
+    return;
+  }
   const card = e.target.closest('[data-device]');
-  if (card) selectDevice(card.dataset.device === selectedId ? null : card.dataset.device);
+  if (card) selectDevice(card.dataset.device === String(selectedId) ? null : card.dataset.device);
+});
+
+/* ═══════════ 相機履歷 ═══════════ */
+
+const HISTORY_SHOWN = 4;
+const DAY_MS = 86400000;
+let historyToken = 0;
+
+const selectedCard = () => [...document.querySelectorAll('#device-list .dev')]
+  .find(c => c.dataset.device === String(selectedId));
+
+/** 今年的只寫月/日，其他年份寫完整日期 */
+function shortDate(s) {
+  const d = store.dateOnly(String(s || ''));
+  return d.startsWith(String(new Date().getFullYear())) ? d.slice(5).replace('-', '/') : d.replace(/-/g, '/');
+}
+
+function closeHistory() {
+  historyId = null;
+  historyAll = false;
+  historyToken++;
+  document.querySelectorAll('#device-list .hist').forEach(el => el.remove());
+  document.querySelectorAll('#device-list [data-hist]').forEach(b => { b.textContent = '📜 履歷 ▾'; });
+}
+
+function toggleHistory(id) {
+  if (historyId != null && String(historyId) === String(id)) return closeHistory();
+  closeHistory();
+  historyId = id;
+  showHistory();
+}
+
+/** 在選取的卡片裡畫出履歷（換機前的舊相機也算同一個樣點） */
+async function showHistory() {
+  const token = ++historyToken;
+  if (historyId == null) return;
+  const [records, devices, queue] = await Promise.all([
+    store.getAllRecords(), store.getProjectDevicesAll(store.settings.projectId), store.getQueue(),
+  ]);
+  const card = selectedCard();
+  // 等資料的時候使用者可能已經關掉或換了一台
+  if (token !== historyToken || !card || card.dataset.device !== String(historyId)) return;
+  const device = devices.find(d => String(d.id) === String(historyId));
+  if (!device) return;
+  const pending = new Set(queue.filter(q => q.status !== 'done' && q.payload?.recordId).map(q => String(q.payload.recordId)));
+  card.querySelector('.hist')?.remove();
+  card.insertAdjacentHTML('beforeend', historyHtml(device, records, devices, pending));
+  card.querySelector('[data-hist]').textContent = '📜 履歷 ▴';
+}
+
+function historyHtml(device, records, devices, pending) {
+  const list = stats.stationHistory(device.id, records);
+  const ids = stats.chainIds(device.id, records).map(String);
+  const installed = devices.filter(d => ids.includes(String(d.id))).map(d => d.createdAt).filter(Boolean).sort()[0]
+    || device.createdAt;
+  const lost = [...stats.lostByDevice(stats.downtimes(list)).values()].reduce((sum, x) => sum + x.ms, 0) / DAY_MS;
+  const swaps = list.filter(r => r.cameraSwapped).length;
+  const pills = [
+    installed ? `<span class="pill">架設 ${esc(store.dateOnly(installed))}</span>` : '',
+    `<span class="pill">巡檢 ${list.length} 次</span>`,
+    `<span class="pill${lost >= 0.5 ? ' bad' : ''}">漏拍 ${Math.round(lost)} 天</span>`,
+    swaps ? `<span class="pill">換機 ${swaps} 次</span>` : '',
+  ].join('');
+  if (!list.length) {
+    return `<div class="hist"><div class="hist-sum">${pills}</div><p class="sec-note" style="margin:0;">還沒有巡檢紀錄。</p></div>`;
+  }
+  const shown = historyAll ? list : list.slice(0, HISTORY_SHOWN);
+  const more = list.length - shown.length;
+  return `<div class="hist"><div class="hist-sum">${pills}</div>`
+    + `<ul class="tl">${shown.map(r => historyItem(r, pending)).join('')}</ul>`
+    + (more ? `<button type="button" class="more" data-hist-all>顯示較早的 ${more} 筆 ▾</button>` : '')
+    + '</div>';
+}
+
+function historyItem(r, pending) {
+  const what = [];
+  if (r.cameraSwapped) {
+    what.push(`🔁 換機 ${esc(r.deviceId)} → ${esc(r.newDeviceId)}`
+      + `${r.newCameraModel ? `（${esc(r.newCameraModel)}）` : ''}${r.swapReason ? `：${esc(r.swapReason)}` : ''}`);
+  } else if (r.running === false) {
+    what.push('⚠️ 相機故障或沒電');
+  }
+  if (r.batteryChanged) what.push(`🔋 換${esc(r.batteryTypeNew || '電池')}`);
+  if (r.sdChanged) what.push(`💾 換卡 ${r.sdRetrieved ? `${esc(r.sdRetrieved)} → ` : ''}${esc(r.sdNew)}`);
+  if (!r.batteryChanged && r.batteryPct != null && r.batteryPct !== '') what.push(`電量 ${esc(r.batteryPct)}%`);
+  if (r.configChanged) what.push('⚙️ 改設定');
+  if (r.locationChanged) what.push('📍 改位置');
+
+  const stopped = r.stoppedMidway && r.stoppedAt;
+  const stopDays = stopped ? Math.max(0, Math.round((stats.toMs(r.patrolAt) - stats.toMs(r.stoppedAt)) / DAY_MS)) : 0;
+  const cls = r.cameraSwapped ? 'swap' : (stopped || r.running === false ? 'stop' : '');
+  return `<li class="${cls}"><span class="when">${shortDate(r.patrolAt)}</span><span class="who">${esc(r.inspector)}</span>`
+    + (pending.has(String(r.recordId)) ? '<span class="pill wait">待上傳</span>' : '')
+    + `<div class="what">${what.join(' · ') || '巡檢'}</div>`
+    + (stopped ? `<div class="stopline">⏸ 中間有停：${shortDate(r.stoppedAt)} ${esc(r.stopReason || '其他')}（漏 ${stopDays} 天）</div>` : '')
+    + (r.note ? `<div class="memo">📝 ${esc(r.note)}</div>` : '')
+    + '</li>';
+}
+
+/** 從統計點樣點：回設備清單、選取那台並打開履歷 */
+function openStationHistory(id) {
+  selectedId = id;
+  historyId = id;
+  historyAll = false;
+  scrollToSelected = true;
+  go('scr-home');
+}
+
+/* ═══════════ 出發準備 ═══════════ */
+
+let packSel = null; // 勾選的設備序號（字串）
+
+async function renderPack({ reset = false } = {}) {
+  const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
+  const due = devices.filter(stats.isDue);
+  if (reset || !packSel) packSel = new Set(due.map(d => String(d.id)));
+  const chosen = devices.filter(d => packSel.has(String(d.id)));
+  const sum = stats.packSummary(chosen);
+
+  $('pack-summary').innerHTML = packSummaryHtml(sum);
+  const same = list => list.length === chosen.length && list.every(d => packSel.has(String(d.id)));
+  const preset = (name, label, list) =>
+    `<button type="button" data-preset="${name}"${same(list) && list.length ? ' class="on"' : ''}>${label}</button>`;
+  $('pack-presets').innerHTML = preset('due', `逾 60 天＋故障（${due.length}）`, due)
+    + preset('all', `全部（${devices.length}）`, devices) + '<button type="button" data-preset="none">清除</button>';
+  $('pack-list').innerHTML = devices.length
+    ? devices.map(d => packRow(d, packSel.has(String(d.id)))).join('')
+    : '<p class="sec-note" style="margin:10px 0;">此專案還沒有設備。</p>';
+}
+
+function packRow(d, on) {
+  const need = stats.packNeeds(d);
+  const cfg = d.config || {};
+  const bits = [`上次 ${shortDate(d.lastPatrolAt)}`,
+    d.running === false ? '相機故障' : `${d.batteryType || '電池'} ${d.batteryPct ?? '—'}%`];
+  if (cfg.ironCase === false) bits.push('沒鐵殼');
+  if (cfg.locked === false) bits.push('沒上鎖');
+  if (cfg.rainCover === false) bits.push('沒遮雨板');
+  const icons = (need.spare ? '📷' : '') + (need.battery ? '🔋' : '') + '💾'
+    + (need.iron ? '🛡' : '') + (need.lock ? '🔒' : '') + (need.rain ? '☂' : '');
+  return `<div class="pick${on ? '' : ' off'}" data-pick="${esc(d.id)}" role="checkbox" aria-checked="${on}">`
+    + `<span class="box${on ? ' on' : ''}">${on ? '✓' : ''}</span>`
+    + `<div class="who"><b>${esc(store.stationLabel(d))}</b><small>${esc(bits.join(' · '))}</small></div>`
+    + `<span class="need">${icons}</span></div>`;
+}
+
+/** [名稱, 數量, 哪幾台] */
+function packLines(s) {
+  const lines = s.battery.map(b => [`🔋 ${b.type}`, `${b.labels.length} 台份`, b.labels.join('、')]);
+  lines.push(['💾 記憶卡', `${s.sd} 張`, '每台一張']);
+  if (s.spare.length) {
+    lines.push(['📷 備機', `${s.spare.length} 台`, s.spare.map(x => `${x.label}${x.model ? `（${x.model}）` : ''}`).join('、')]);
+  }
+  if (s.iron.length) lines.push(['🛡 鐵殼', `${s.iron.length} 個`, s.iron.join('、')]);
+  if (s.lock.length) lines.push(['🔒 鎖', `${s.lock.length} 個`, s.lock.join('、')]);
+  if (s.rain.length) lines.push(['☂ 遮雨板', `${s.rain.length} 片`, s.rain.join('、')]);
+  return lines;
+}
+
+function packSummaryHtml(s) {
+  if (!s.count) return '<h3>還沒勾選相機</h3><p class="sec-note" style="margin:0;">從下面勾這趟要去的相機。</p>';
+  return `<h3>這趟 ${s.count} 台，要帶：</h3><ul class="take">`
+    + packLines(s).map(([n, q, who]) => `<li><span class="n">${esc(n)}</span>${esc(q)}<small>${esc(who)}</small></li>`).join('')
+    + '</ul><button type="button" class="btn sub" id="pack-copy" style="margin-top:10px;">📋 複製清單</button>';
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // 舊瀏覽器或沒有剪貼簿權限時的備援
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  const original = btn.textContent;
+  btn.textContent = '✓ 已複製';
+  setTimeout(() => { btn.textContent = original; }, 2000);
+}
+
+$('scr-pack').addEventListener('click', async e => {
+  const pick = e.target.closest('[data-pick]');
+  const preset = e.target.closest('[data-preset]');
+  if (pick) {
+    const id = pick.dataset.pick;
+    if (packSel.has(id)) packSel.delete(id); else packSel.add(id);
+    return renderPack();
+  }
+  if (preset) {
+    const devices = await store.getDevices(store.settings.projectId);
+    const list = { due: devices.filter(stats.isDue), all: devices, none: [] }[preset.dataset.preset];
+    packSel = new Set(list.map(d => String(d.id)));
+    return renderPack();
+  }
+  if (e.target.closest('#pack-copy')) {
+    const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
+    const chosen = devices.filter(d => packSel.has(String(d.id)));
+    const s = stats.packSummary(chosen);
+    const head = `🎒 ${shortDate(store.stamp())} 出發準備（${s.count} 台：${chosen.map(store.stationLabel).join('、')}）`;
+    const text = [head, ...packLines(s).map(([n, q, who]) => `${n} ${q}${who && who !== '每台一張' ? `：${who}` : ''}`)].join('\n');
+    copyText(text, e.target.closest('#pack-copy'));
+  }
+});
+
+/* ═══════════ 統計 ═══════════ */
+
+const DUE_DAYS = 60; // 地圖逾期變黃的天數（store.deviceStatus）
+const REASON_COLOR = { '沒電': 'var(--red)', '故障': '#7b2cbf', '記憶卡滿': 'var(--amber)' };
+const statsState = { tab: 'down', span: 'month', y: null, m: null };
+let workTsv = '';
+
+const r0 = x => Math.round(x);
+const fmtDays = x => (x > 0 && x < 0.5 ? '不到 1' : String(Math.round(x)));
+
+/** 目前的期間 [from, to)（毫秒） */
+function statsPeriod({ y, m, span } = statsState) {
+  return span === 'year'
+    ? [new Date(y, 0, 1).getTime(), new Date(y + 1, 0, 1).getTime()]
+    : [new Date(y, m, 1).getTime(), new Date(y, m + 1, 1).getTime()];
+}
+
+function shiftPeriod(step) {
+  if (statsState.span === 'year') statsState.y += step;
+  else {
+    const d = new Date(statsState.y, statsState.m + step, 1);
+    statsState.y = d.getFullYear();
+    statsState.m = d.getMonth();
+  }
+  renderStats();
+}
+
+async function renderStats() {
+  const now = new Date();
+  if (statsState.y == null) {
+    statsState.y = now.getFullYear();
+    statsState.m = now.getMonth();
+  }
+  const { tab, span, y, m } = statsState;
+  const pid = store.settings.projectId;
+  const project = (await store.getProjects()).find(p => p.id === pid);
+  $('stats-title').textContent = `統計${project ? ` · ${project.name}` : ''}`;
+  $('stats-tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+
+  // 續航看全部月份，不用選期間
+  $('stats-period').hidden = tab === 'life';
+  $('stats-label').textContent = span === 'year' ? `${y} 年` : `${y} 年 ${m + 1} 月`;
+  $('stats-span').textContent = span === 'year' ? '看單月' : '看全年';
+  $('stats-next').disabled = statsPeriod()[1] > now.getTime();
+
+  const old = backendVersion && olderThan(backendVersion, BACKEND_NEEDED);
+  $('stats-note').hidden = !old;
+  $('stats-note').textContent = old ? '⚠️ 雲端的 Apps Script 還是舊版，統計只含這支手機自己記過的巡檢紀錄。' : '';
+
+  const [devices, allRecords] = await Promise.all([store.getProjectDevicesAll(pid), store.getAllRecords()]);
+  const records = allRecords.filter(r => r.projectId === pid);
+  const [from, to] = statsPeriod();
+  $('stats-body').innerHTML = !project
+    ? '<div class="hint">還沒有任何專案。</div>'
+    : tab === 'down' ? downHtml(devices, records, from, to)
+    : tab === 'life' ? lifeHtml(devices, records)
+    : workHtml(records, from, to, project.name);
+}
+
+function downHtml(devices, records, from, to) {
+  const rep = stats.downtimeReport(devices, records, from, to);
+  const rate = stats.workingRate(rep);
+  const kpi = rep.cams
+    ? `<div class="big">${rate == null ? '—' : `${r0(rate * 100)}<small>%</small>`}</div>`
+      + `<div class="txt">有在拍的相機日<br><b>${r0(rep.expected - rep.lost)}</b> ／ 應拍 <b>${r0(rep.expected)}</b>（${rep.cams} 台）`
+      + `<br>漏拍 <b class="red">${fmtDays(rep.lost)} 天</b></div>`
+    : '<div class="txt">這段期間沒有相機在現場。</div>';
+
+  const max = rep.rows[0]?.days || 1;
+  const rows = rep.rows.map(r => `<li><span class="lab${r.deviceId != null ? ' link' : ''}"${r.deviceId != null ? ` data-open="${esc(r.deviceId)}"` : ''}>`
+    + `${esc(r.label)}</span><span class="track"><span class="fill" style="width:${Math.max(3, (r.days / max) * 100)}%;`
+    + `background:${REASON_COLOR[r.reasons[0]] || 'var(--muted)'}"></span></span>`
+    + `<span class="val"><b>${fmtDays(r.days)} 天</b> ${esc(r.reasons.join('、'))}</span></li>`).join('');
+  const ongoing = rep.rows.filter(r => r.ongoing).map(r => r.label);
+  const notes = [
+    ongoing.length ? `${ongoing.join('、')} 還沒修好，之後會繼續算。` : '',
+    rep.cams > rep.rows.length && rep.rows.length ? '其餘相機沒有回報停過。' : '',
+  ].filter(Boolean).join('');
+  const which = rep.rows.length
+    ? `<ul class="bars">${rows}</ul>${notes ? `<p class="foot" style="margin:6px 0 0;">${esc(notes)}</p>` : ''}`
+    : '<p class="sec-note" style="margin:0;">這段期間沒有相機回報停過。</p>';
+
+  return `<div class="card"><div class="kpi">${kpi}</div></div>`
+    + `<div class="card"><h3>哪幾台漏拍</h3>${which}</div>`
+    + trendHtml(devices, records)
+    + '<p class="foot">漏拍＝「中間有停」的停止日 → 下次巡檢；「相機故障或沒電」→ 修好或換機的那次巡檢。跨月的會拆到各月。點樣點可看履歷。<br>'
+    + '⚠ 還沒巡到的相機不知道有沒有停過，要等下次巡檢填了才補進來，所以最近一兩個月的數字之後可能會往下修。</p>';
+}
+
+/** 單月：近 6 個月；全年：那一年的 12 個月 */
+function trendHtml(devices, records) {
+  const { span, y, m } = statsState;
+  const months = span === 'year'
+    ? Array.from({ length: 12 }, (_, i) => [y, i])
+    : Array.from({ length: 6 }, (_, i) => { const d = new Date(y, m - 5 + i, 1); return [d.getFullYear(), d.getMonth()]; });
+  const cols = months.map(([yy, mm]) => {
+    const [from, to] = statsPeriod({ y: yy, m: mm, span: 'month' });
+    const rate = stats.workingRate(stats.downtimeReport(devices, records, from, to));
+    const cur = span === 'month' && yy === y && mm === m ? ' class="cur"' : '';
+    const bar = rate == null ? '<span style="height:0"><em>—</em></span>'
+      : `<span style="height:${Math.max(2, rate * 64)}px"><em>${r0(rate * 100)}%</em></span>`;
+    return `<div${cur}>${bar}${mm + 1}月</div>`;
+  }).join('');
+  return `<div class="card"><h3>${span === 'year' ? `${y} 年各月` : '近 6 個月'}</h3><div class="cols">${cols}</div></div>`;
+}
+
+// 用顯示出來的整數天數比，免得畫面寫「60 天」卻說比 60 天短
+const shortLife = g => r0(g.min) < DUE_DAYS;
+
+function lifeTable(groups, empty) {
+  if (!groups.length) return `<p class="sec-note" style="margin:0;">${empty}</p>`;
+  return '<table class="t"><tr><th>型號 · 設定</th><th>次數</th><th>最短</th><th>中位數</th></tr>'
+    + groups.map(g => `<tr><td>${esc(g.model)}<small>${esc(g.sub)}</small></td><td>${g.n}</td>`
+      + `<td${shortLife(g) ? ' class="red"' : ''}>${r0(g.min)} 天</td><td>${r0(g.median)} 天</td></tr>`).join('')
+    + '</table>';
+}
+
+function lifeHtml(devices, records) {
+  const bat = stats.lifeStats(devices, records, 'battery');
+  const sd = stats.lifeStats(devices, records, 'sd');
+  const active = devices.filter(d => !d.retired);
+  const modelOf = d => d.cameraModel || '（未填型號）';
+  const batWarn = bat.filter(shortLife).map(g => {
+    const where = active.filter(d => modelOf(d) === g.model && (d.batteryType || '（未填類型）') === g.sub).map(store.stationLabel);
+    return `⚠ ${g.model} 用${g.sub}最短 ${r0(g.min)} 天就沒電，比逾期變色的 ${DUE_DAYS} 天短`
+      + `${where.length ? `（現在用${g.sub}的點：${where.join('、')}）` : ''}。`;
+  });
+  const sdWarn = sd.filter(shortLife)
+    .map(g => `⚠ ${g.model}（${g.sub}）最短 ${r0(g.min)} 天記憶卡就滿，比逾期變色的 ${DUE_DAYS} 天短。`);
+  const warn = list => list.map(t => `<div class="warnline">${esc(t)}</div>`).join('');
+
+  return `<div class="card"><h3>🔋 換電池後幾天沒電</h3>${lifeTable(bat, '還沒有資料：巡檢時填了「中間有停：沒電」才算得出來。')}${warn(batWarn)}</div>`
+    + `<div class="card"><h3>💾 換卡後幾天滿</h3>${lifeTable(sd, '還沒有資料：巡檢時填了「中間有停：記憶卡滿」才算得出來。')}${warn(sdWarn)}</div>`
+    + '<p class="foot">只算得到「有停」的那幾次：巡檢時還有電就換掉的，不知道本來還能撐多久，所以不列入。'
+    + '沒換過電池的從架設日起算，換機的新相機沿用舊相機的電池。資料從 v0.3 開始填「中間有停」才有，前幾個月次數會很少。</p>';
+}
+
+function workHtml(records, from, to, projectName) {
+  const w = stats.workload(records, from, to);
+  const title = `${$('stats-label').textContent} 巡檢工作量（${projectName}）`;
+  const tsvRows = [[title], [], ['人員', '出勤日', '台次', '換電', '換卡', '換機'],
+    ...w.people.map(p => [p.name, p.days, p.count, p.battery, p.sd, p.swap]),
+    ['合計', w.total.days, w.total.count, w.total.battery, w.total.sd, w.total.swap]];
+  if (w.battery.length) tsvRows.push([], ['電池類型', '台份'], ...w.battery.map(b => [b.type, b.n]));
+  tsvRows.push([], ['日期', '人員', '台數'], ...w.detail.map(x => [x.day, x.name, x.n]));
+  workTsv = tsvRows.map(r => r.join('\t')).join('\n');
+
+  if (!w.total.count) return '<div class="card"><p class="sec-note" style="margin:0;">這段期間沒有巡檢紀錄。</p></div>';
+  const td = v => `<td>${esc(v)}</td>`;
+  const people = '<table class="t"><tr><th>人員</th><th>出勤日</th><th>台次</th><th>換電</th><th>換卡</th><th>換機</th></tr>'
+    + w.people.map(p => `<tr>${[p.name, p.days, p.count, p.battery, p.sd, p.swap].map(td).join('')}</tr>`).join('')
+    + `<tr class="sum">${['合計', w.total.days, w.total.count, w.total.battery, w.total.sd, w.total.swap].map(td).join('')}</tr></table>`;
+  const battery = w.battery.length
+    ? `<div class="card"><h3>電池用量</h3><table class="t"><tr><th>類型</th><th>台份</th></tr>`
+      + w.battery.map(b => `<tr>${td(b.type)}${td(b.n)}</tr>`).join('') + '</table></div>'
+    : '';
+  const detail = '<table class="t"><tr><th>日期</th><th>人員</th><th>台數</th></tr>'
+    + w.detail.map(x => `<tr>${td(shortDate(x.day))}${td(x.name)}${td(x.n)}</tr>`).join('') + '</table>';
+
+  return `<div class="card"><h3>每人</h3>${people}<p class="foot" style="margin:6px 0 0;">合計的出勤日是「有人出去的天數」，兩人同一天去算 1 天。</p></div>`
+    + battery
+    + `<div class="card"><h3>出勤明細</h3>${detail}</div>`
+    + '<button type="button" class="btn sub" id="work-copy">📋 複製到 Excel</button>';
+}
+
+$('scr-stats').addEventListener('click', e => {
+  const tab = e.target.closest('[data-tab]');
+  if (tab) { statsState.tab = tab.dataset.tab; return renderStats(); }
+  if (e.target.closest('#stats-prev')) return shiftPeriod(-1);
+  if (e.target.closest('#stats-next')) return shiftPeriod(1);
+  if (e.target.closest('#stats-span')) {
+    statsState.span = statsState.span === 'year' ? 'month' : 'year';
+    return renderStats();
+  }
+  const open = e.target.closest('[data-open]');
+  if (open) {
+    // data-* 一律是字串；設備序號在試算表可能是數字，要找回原本的值，選取才對得上
+    return store.getDevices(store.settings.projectId).then(devices => {
+      const d = devices.find(x => String(x.id) === open.dataset.open);
+      if (d) openStationHistory(d.id);
+    });
+  }
+  if (e.target.closest('#work-copy')) copyText(workTsv, e.target.closest('#work-copy'));
 });
 
 /* ═══════════ 新增設備 ═══════════ */
@@ -836,12 +1253,15 @@ async function refreshFromCloud() {
     // Apps Script 只存檔沒「部署新版本」時，網址上跑的還是舊程式：新欄位（例如樣點編號）不會出現
     if (!backendVersion || olderThan(backendVersion, BACKEND_NEEDED)) {
       setCloudHint(`⚠️ 雲端的 Apps Script 還是舊版（${backendVersion || 'v0.1 以前'}，需要 ${BACKEND_NEEDED}）`
-        + '，新功能（例如夜間影片秒數、中間有停）不會存進試算表。請到 Apps Script「管理部署作業」把現有的部署改成新版本。', true);
+        + '，新功能（例如履歷、統計、中間有停）拿不到或存不進試算表。請到 Apps Script「管理部署作業」把現有的部署改成新版本。', true);
     } else {
       setCloudHint(`☁️ 已與雲端同步（${store.stamp().slice(11)}）`);
     }
     await renderHome();
-    if (document.querySelector('.screen.active').id === 'scr-sync') await renderSync();
+    const active = document.querySelector('.screen.active').id;
+    if (active === 'scr-sync') await renderSync();
+    if (active === 'scr-stats') await renderStats();
+    if (active === 'scr-pack') await renderPack();
   } catch (err) {
     noteSyncError(err);
     setCloudHint(err instanceof api.LoginExpiredError

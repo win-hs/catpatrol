@@ -99,6 +99,10 @@ export const getDevices = projectId =>
   db.byIndex('devices', 'projectId', projectId).then(ds => ds.filter(d => !d.retired));
 export const getDevice = id => db.get('devices', id);
 export const getQueue = () => db.all('queue');
+/** 含已撤下的舊相機：統計要算換機前那台在現場的天數，履歷要找到換機前的紀錄 */
+export const getProjectDevicesAll = projectId => db.byIndex('devices', 'projectId', projectId);
+/** 巡檢紀錄：雲端的全部（v0.4 起）＋這支手機還沒上傳的 */
+export const getAllRecords = () => db.all('records');
 
 export async function getLastRecord(deviceId) {
   const records = await db.byIndex('records', 'deviceId', deviceId);

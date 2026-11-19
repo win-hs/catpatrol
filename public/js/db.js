@@ -57,5 +57,8 @@ export const put = (store, value) => run(store, 'readwrite', s => s.put(value));
 export const get = (store, key) => run(store, 'readonly', s => s.get(key));
 export const del = (store, key) => run(store, 'readwrite', s => s.delete(key));
 export const all = store => run(store, 'readonly', s => s.getAll());
+// 多筆放在同一個交易：雲端拉下來的巡檢紀錄可能上千筆，一筆一個交易在手機上太慢
+export const putMany = (store, values) => run(store, 'readwrite', s => { values.forEach(v => s.put(v)); });
+export const delMany = (store, keys) => run(store, 'readwrite', s => { keys.forEach(k => s.delete(k)); });
 export const byIndex = (store, index, value) =>
   run(store, 'readonly', s => s.index(index).getAll(value));

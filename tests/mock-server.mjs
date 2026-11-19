@@ -28,6 +28,16 @@ const dev = (id, stationId, i, days, extra = {}) => ({
   lastPatrolAt: daysAgo(days), lastInspector: '王小明', running: true, lastNote: '', retired: false, ...extra,
 });
 
+// 巡檢紀錄（v0.4 起 bootstrap 會帶）：履歷與統計用
+const dayOnly = n => daysAgo(n).slice(0, 10);
+const rec = (n, deviceId, inspector, extra = {}) => ({
+  recordId: `REC-${deviceId}-${n}`, patrolAt: daysAgo(n), projectId: 'P1', deviceId, inspector, running: true,
+  sdChanged: false, sdNew: '', sdRetrieved: '', batteryChanged: false, batteryTypeNew: '', batteryPct: 75,
+  configChanged: false, locationChanged: false, note: '', cameraSwapped: false, newDeviceId: '', newCameraModel: '',
+  swapReason: '', stationId: '', stoppedMidway: false, stoppedAt: '', stopReason: '', ...extra,
+});
+const stop = (n, stopReason) => ({ stoppedMidway: true, stoppedAt: dayOnly(n), stopReason });
+
 const state = {
   projects: [{ id: 'P1', name: '測試專案', createdAt: '2026-10-01 10:00', status: '進行中' }],
   fieldDefs: [],
@@ -35,15 +45,32 @@ const state = {
     dev('CAM-1', 'S-01', 0, 5, { batteryChangedAt: daysAgo(45) }),
     dev('CAM-2', 'S-02', 1, 70, { config: { ...cfg, mode: '照片+影片', videoQuality: '1080p', videoSec: 30, videoSecNight: 15,
       ironCase: true, locked: true, rainCover: false } }),
-    dev('CAM-3', 'S-03', 2, 100, { lastPhotoId: 'PH-3', prevSdCard: '野08' }),
-    dev('CAM-4', 'S-04', 3, 130),
+    dev('CAM-3', 'S-03', 2, 100, { lastPhotoId: 'PH-3', prevSdCard: '野08', batteryPct: 25 }),
+    dev('CAM-0', 'S-04', 3, 130, { retired: true, running: false }), // 130 天前被 CAM-4 換下
+    dev('CAM-4', 'S-04', 3, 130, { createdAt: daysAgo(130), config: { ...cfg, locked: false } }),
     dev('CAM-5', 'S-05', 4, 10, { running: false, lastNote: '相機被偷，<b>需補</b>' }),
+  ],
+  records: [
+    rec(150, 'CAM-1', '林小華', { sdChanged: true, sdNew: '野11', sdRetrieved: '野10' }),
+    rec(100, 'CAM-1', '王小明', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野10', sdRetrieved: '野11', ...stop(112, '沒電') }),
+    rec(45, 'CAM-1', '林小華', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野11', sdRetrieved: '野10' }),
+    rec(5, 'CAM-1', '王小明', { sdChanged: true, sdNew: '野10', sdRetrieved: '野11', note: '支架鬆了，已鎖緊' }),
+    rec(140, 'CAM-2', '王小明', { sdChanged: true, sdNew: '野21', sdRetrieved: '野20' }),
+    rec(70, 'CAM-2', '林小華', { sdChanged: true, sdNew: '野20', sdRetrieved: '野21', ...stop(80, '記憶卡滿') }),
+    rec(160, 'CAM-3', '林小華', { batteryChanged: true, batteryTypeNew: '鋰電' }),
+    rec(100, 'CAM-3', '王小明', { sdChanged: true, sdNew: '野12', sdRetrieved: '野08', batteryPct: 25, ...stop(115, '記憶卡滿') }),
+    rec(170, 'CAM-0', '王小明', { sdChanged: true, sdNew: '野31', sdRetrieved: '野30' }),
+    rec(130, 'CAM-0', '林小華', { running: false, cameraSwapped: true, newDeviceId: 'CAM-4', newCameraModel: 'Meidase P70',
+      swapReason: '進水故障', batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野13', sdRetrieved: '野31',
+      note: '舊機鏡頭起霧進水', ...stop(150, '其他') }),
+    rec(60, 'CAM-5', '王小明', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野15', sdRetrieved: '野14' }),
+    rec(10, 'CAM-5', '林小華', { running: false, note: '相機被偷，<b>需補</b>', ...stop(20, '其他') }),
   ],
 };
 const writes = [];
 const photoHits = [];
 let expired = false;
-let backendVersion = 'v0.3'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
+let backendVersion = 'v0.4'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
 
 const send = (res, status, body, headers = {}) => {
   res.writeHead(status, { 'Cache-Control': 'no-store', ...headers });
@@ -61,7 +88,10 @@ http.createServer((req, res) => {
     return send(res, 200, 'ok');
   }
   if (url.pathname === '/__expire') { expired = url.searchParams.get('on') === '1'; return send(res, 200, `expired=${expired}`); }
-  if (url.pathname === '/__clear') { state.projects = []; state.devices = []; state.fieldDefs = []; return send(res, 200, 'cleared'); }
+  if (url.pathname === '/__clear') {
+    state.projects = []; state.devices = []; state.fieldDefs = []; state.records = [];
+    return send(res, 200, 'cleared');
+  }
 
   if (url.pathname.startsWith('/api/')) {
     if (expired) return send(res, 302, '', { Location: 'https://example.cloudflareaccess.com/cdn-cgi/access/login/x' });
@@ -84,6 +114,11 @@ http.createServer((req, res) => {
       req.on('end', () => {
         const msg = JSON.parse(body);
         writes.push({ action: msg.action, payload: msg.payload, photos: (msg.photos || []).length });
+        // 上傳的巡檢紀錄留在雲端，下次拉資料時履歷才看得到（和真的試算表一樣）
+        if (msg.action === 'addRecord' || msg.action === 'updateRecord') {
+          const { photoIds, deviceState, customFields, config, ...r } = msg.payload;
+          state.records = state.records.filter(x => x.recordId !== r.recordId).concat(r);
+        }
         send(res, 200, JSON.stringify({ ok: true }), { 'Content-Type': 'application/json' });
       });
       return;

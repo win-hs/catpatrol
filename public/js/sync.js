@@ -122,12 +122,15 @@ export async function pull() {
   const data = await api.bootstrap();
   if (data.me) store.settings.me = data.me;
 
-  const keep = { projects: new Set(), fieldDefs: new Set(), devices: new Set() };
+  const keep = { projects: new Set(), fieldDefs: new Set(), devices: new Set(), records: new Set() };
   for (const { type, payload: p } of (await store.getQueue()).filter(q => q.status !== 'done')) {
     if (type === 'addProject') keep.projects.add(p.id);
     if (type === 'saveFieldDef') keep.fieldDefs.add(p.id);
     if (type === 'addDevice') keep.devices.add(p.id);
-    if (type === 'addRecord' || type === 'updateRecord') keep.devices.add(p.deviceId).add(p.newDeviceId);
+    if (type === 'addRecord' || type === 'updateRecord') {
+      keep.devices.add(p.deviceId).add(p.newDeviceId);
+      keep.records.add(String(p.recordId));
+    }
     if (p.projectId) keep.projects.add(p.projectId);
   }
 
@@ -142,7 +145,21 @@ export async function pull() {
   await dropMissing('projects', data.projects, keep.projects);
   await dropMissing('fieldDefs', data.fieldDefs, keep.fieldDefs);
   await dropMissing('devices', data.devices, keep.devices);
+  if (Array.isArray(data.records)) await mergeRecords(data.records, keep.records);
   return data;
+}
+
+/**
+ * 巡檢紀錄（雲端 v0.4 起才會給，舊版雲端就不動本機的）：相機履歷與統計用，離線也看得到。
+ * 以雲端為準，在試算表刪掉的紀錄手機上也跟著消失；還在佇列等上傳的保留本機版本（雲端還沒有，或還沒改到）
+ */
+async function mergeRecords(remote, keep) {
+  await db.putMany('records', remote.filter(r => !keep.has(String(r.recordId))));
+  const remoteIds = new Set(remote.map(r => String(r.recordId)));
+  const stale = (await db.all('records'))
+    .filter(r => !remoteIds.has(String(r.recordId)) && !keep.has(String(r.recordId)))
+    .map(r => r.recordId);
+  if (stale.length) await db.delMany('records', stale);
 }
 
 async function dropMissing(storeName, remote, keep) {

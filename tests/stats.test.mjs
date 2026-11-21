@@ -56,7 +56,7 @@ const of = id => dt.filter(x => x.deviceId === id);
 check('stop: 停止時間 → 這次巡檢, reason kept', of('A').length === 1 && of('A')[0].start === S.toMs('2026-10-02')
   && of('A')[0].end === S.toMs('2026-10-20 10:00') && of('A')[0].reason === '沒電');
 check('down at patrol: until next patrol of the same camera', of('B').length === 1 && of('B')[0].end === S.toMs('2026-10-25 10:00')
-  && of('B')[0].reason === '故障' && !of('B')[0].ongoing);
+  && of('B')[0].reason === '未運作' && !of('B')[0].ongoing);
 check('down and not patrolled since: ongoing until now', of('C').length === 1 && of('C')[0].end === now && of('C')[0].ongoing === true);
 check('down but swapped on the spot: no downtime after', of('D').length === 0);
 check('stop date after patrol (bad data) ignored', of('F').length === 0);
@@ -86,7 +86,7 @@ const oct = S.downtimeReport(devs, recs, new Date(2026, 9, 1).getTime(), new Dat
 check('expected: A 31 + B 21 + OLD 15 + NEW 16 = 83 camera-days, 4 cameras', near(oct.expected, 83) && oct.cams === 4, J(oct));
 check('lost: A 10 days (stop crosses month end) + S-03 5 days down before swap', near(oct.lost, 15), J(oct));
 check('rows by station, most first; S-03 points to the current camera',
-  J(oct.rows.map(r => [r.label, Math.round(r.days), r.reasons, r.deviceId])) === J([['S-01', 10, ['沒電'], 'A'], ['S-03', 5, ['故障'], 'NEW']]), J(oct.rows));
+  J(oct.rows.map(r => [r.label, Math.round(r.days), r.reasons, r.deviceId])) === J([['S-01', 10, ['沒電'], 'A'], ['S-03', 5, ['未運作'], 'NEW']]), J(oct.rows));
 check('working rate', near(S.workingRate(oct), 1 - 15 / 83));
 const nov = S.downtimeReport(devs, recs, new Date(2026, 10, 1).getTime(), new Date(2026, 11, 1).getTime(), now);
 check('current month counted only up to now; next month of a stop gets its share',
@@ -114,30 +114,42 @@ check('battery use by new battery type', J(work.battery) === J([{ type: '鋰電'
 check('detail by date then person', J(work.detail.map(x => [x.day, x.name, x.n])) === J([['2026-10-03', '林小華', 2], ['2026-10-03', '王小明', 1],
   ['2026-10-14', '林小華', 1], ['2026-10-20', '（未填）', 1]]), J(work.detail));
 
-// ── 出發準備
-const days = n => { const d = new Date(Date.now() - n * DAY); const p = x => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-check('isDue: >60 days or broken', S.isDue({ lastPatrolAt: days(61) }) && !S.isDue({ lastPatrolAt: days(59) }) && S.isDue({ running: false, lastPatrolAt: days(1) }));
+// ── 出發準備（v0.7：上面三排決定怎麼帶）
+const LOW = { battery: 'low', sd: 'each', guard: 'full' };
+const ALL = { battery: 'all', sd: 'each', guard: 'full' };
+const full3 = { ironCase: true, locked: true, rainCover: true };
 const need = S.packNeeds;
-check('battery when ≤50%, not at 75%', need(dev({ batteryPct: 50 })).battery === '鋰電' && need(dev({ batteryPct: 75 })).battery === null);
-check('broken camera: spare + battery', need(dev({ running: false, batteryPct: 100 })).spare && need(dev({ running: false, batteryPct: 100 })).battery === '鋰電');
-check('external power never needs batteries', need(dev({ batteryType: '外接電源', batteryPct: 0, running: false })).battery === null);
-check('guards: only explicit "no" (false), not unknown (null)',
-  need(dev({ config: { locked: false, rainCover: null, ironCase: true } })).lock && !need(dev({ config: { locked: false, rainCover: null } })).rain
-  && !need(dev({ config: { ironCase: true } })).iron);
-const pack = S.packSummary([
-  dev({ id: '1', stationId: 'S-03', batteryPct: 25 }),
-  dev({ id: '2', stationId: 'S-05', batteryType: '鹼性', batteryPct: 50, config: { locked: false } }),
-  dev({ id: '3', stationId: 'S-07', running: false, cameraModel: 'Browning HP5 Ultra' }),
-  dev({ id: '4', stationId: 'S-11', batteryPct: 75, config: { rainCover: false, ironCase: false } }),
-]);
-check('pack summary: batteries by type with stations, a card each, spare, guards',
-  J(pack.battery) === J([{ type: '鋰電', labels: ['S-03', 'S-07'] }, { type: '鹼性', labels: ['S-05'] }]) && pack.sd === 4
-  && J(pack.spare) === J([{ label: 'S-07', model: 'Browning HP5 Ultra' }]) && J(pack.lock) === J(['S-05'])
-  && J(pack.rain) === J(['S-11']) && J(pack.iron) === J(['S-11']), J(pack));
-check('lacksGuard: any guard recorded as missing; unknown does not count',
-  S.lacksGuard(dev({ config: { locked: false } })) && S.lacksGuard(dev({ config: { ironCase: true, rainCover: false } }))
-  && !S.lacksGuard(dev({ config: { ironCase: null, locked: null, rainCover: null } })) && !S.lacksGuard(dev({ config: undefined })));
+check('battery "all": every camera except external power',
+  need(dev({ batteryPct: 100 }), ALL).battery === '鋰電' && need(dev({ batteryType: '外接電源' }), ALL).battery === null);
+check('battery "low": ≤50% or not running only',
+  need(dev({ batteryPct: 50 }), LOW).battery === '鋰電' && need(dev({ batteryPct: 75 }), LOW).battery === null
+  && need(dev({ running: false, batteryPct: 100 }), LOW).battery === '鋰電');
+check('not running: spare camera', need(dev({ running: false }), ALL).spare === true && need(dev({}), ALL).spare === false);
+check('missing guards: anything not recorded as "has" (false or never filled)',
+  J(need(dev({ config: { ironCase: true, locked: false } }), ALL).guards) === J(['locked', 'rainCover'])
+  && need(dev({ config: full3 }), ALL).guards.length === 0 && need(dev({ config: undefined }), ALL).guards.length === 3);
+check('sd count: each / half / third, rounded up',
+  S.sdCount(7, 'each') === 7 && S.sdCount(7, 'half') === 4 && S.sdCount(7, 'third') === 3 && S.sdCount(6, 'half') === 3 && S.sdCount(0, 'third') === 0);
+
+const packDevs = [
+  dev({ id: '1', stationId: 'S-03', batteryPct: 25, config: full3 }),
+  dev({ id: '2', stationId: 'S-05', batteryType: '鹼性', batteryPct: 50, config: { ...full3, locked: false } }),
+  dev({ id: '3', stationId: 'S-07', running: false, cameraModel: 'Browning HP5 Ultra', config: full3 }),
+  dev({ id: '4', stationId: 'S-11', batteryPct: 75, config: { locked: true, rainCover: false, ironCase: false } }),
+  dev({ id: '5', stationId: 'S-12', batteryType: '外接電源', batteryPct: 100, config: {} }), // 防護沒填過
+];
+const pf = S.packSummary(packDevs, { battery: 'low', sd: 'half', guard: 'full' });
+check('"50% 以下才換" + 備一半 + 全部上防護: batteries by type with a total, cards, spare, kits with per-item counts',
+  J(pf.battery) === J([{ type: '鋰電', labels: ['S-03', 'S-07'] }, { type: '鹼性', labels: ['S-05'] }]) && pf.batteryTotal === 3
+  && pf.sd === 3 && J(pf.spare) === J([{ label: 'S-07', model: 'Browning HP5 Ultra' }])
+  && pf.guard.mode === 'full' && J(pf.guard.kits) === J(['S-05', 'S-11', 'S-12']) && pf.guard.total === 3
+  && pf.guard.items.ironCase.length === 3 && pf.guard.items.locked.length === 3 && pf.guard.items.rainCover.length === 3, J(pf));
+const pg = S.packSummary(packDevs, { battery: 'all', sd: 'third', guard: 'gaps' });
+check('"全部換" + 備 1/3 + 補缺漏: every camera gets batteries (not external power), only the missing pieces',
+  pg.batteryTotal === 4 && pg.sd === 2 && pg.guard.mode === 'gaps'
+  && J(pg.guard.items.ironCase) === J(['S-11', 'S-12']) && J(pg.guard.items.locked) === J(['S-05', 'S-12'])
+  && J(pg.guard.items.rainCover) === J(['S-11', 'S-12']) && pg.guard.total === 6, J(pg));
+check('no cameras: nothing to bring', S.packSummary([], ALL).sd === 0 && S.packSummary([], ALL).guard.total === 0);
 
 // ── 資料檢查：樣點／記憶卡重複、編號格式
 const issues = S.dataIssues([

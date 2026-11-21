@@ -415,16 +415,16 @@ for (const v of ['野12', 'Wv7', 'sd 3', 'SD012', '08', 'X-9', '', '野0']) {
   check(`sdId same front/back: ${JSON.stringify(v)} → ${sdId_(v)}`, formJs.sdId(v) === sdId_(v), formJs.sdId(v));
 }
 
-check('summary unchanged format', configSummary_(cfg) === '照片 · 照片32MP · 連拍3 · 感度中 · 間隔0s · 工作時間全天', configSummary_(cfg));
+check('summary unchanged format', configSummary_(cfg) === '照片 · 照片32MP · 連拍3 · 靈敏度中 · 間隔0秒 · 工作時間全天', configSummary_(cfg));
 check('summary: day/night secs + guards',
-  configSummary_(vcfg) === '照片+影片 · 照片32MP · 連拍3 · 影片1080p 日30秒/夜15秒 · 感度中 · 間隔0s · 工作時間全天 · 鐵殼✓ 上鎖✗ 遮雨板✓', configSummary_(vcfg));
+  configSummary_(vcfg) === '照片+影片 · 照片32MP · 連拍3 · 影片1080p 日30秒/夜15秒 · 靈敏度中 · 間隔0秒 · 工作時間全天 · 鐵殼✓ 上鎖✗ 遮雨板✓', configSummary_(vcfg));
 const sameSec = { ...vcfg, videoSecNight: 30, ironCase: undefined, locked: undefined, rainCover: undefined };
 check('summary: same day/night secs → one number, no guards when never set',
-  configSummary_(sameSec) === '照片+影片 · 照片32MP · 連拍3 · 影片1080p 30秒 · 感度中 · 間隔0s · 工作時間全天', configSummary_(sameSec));
+  configSummary_(sameSec) === '照片+影片 · 照片32MP · 連拍3 · 影片1080p 30秒 · 靈敏度中 · 間隔0秒 · 工作時間全天', configSummary_(sameSec));
 
 // 網頁的 configSummary 與 code.gs 的 configSummary_ 要一模一樣（比對卡和試算表「新設定摘要」對得起來）
 const front = await import(new URL('../public/js/cam-config.js', import.meta.url));
-check('summary: mount at the end', configSummary_({ ...cfg, mount: '角鋼' }) === '照片 · 照片32MP · 連拍3 · 感度中 · 間隔0s · 工作時間全天 · 固定角鋼');
+check('summary: mount at the end', configSummary_({ ...cfg, mount: '角鋼' }) === '照片 · 照片32MP · 連拍3 · 靈敏度中 · 間隔0秒 · 工作時間全天 · 角鋼固定');
 for (const c of [cfg, vcfg, sameSec, { ...vcfg, mode: '影片', videoSecNight: null, ironCase: false }, { ...vcfg, mount: '綁帶' }]) {
   check(`front/back summary identical: ${configSummary_(c)}`, front.configSummary(c) === configSummary_(c), front.configSummary(c));
 }

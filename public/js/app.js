@@ -8,7 +8,7 @@ import * as stats from './stats.js';
 import { configForm, configSummary, missingFields, MODEL_OPTIONS, MOUNTS } from './cam-config.js';
 
 // 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v0.6';
+const APP_VERSION = 'v0.7';
 // 這版網頁需要的 Apps Script 版本（code.gs 的 VERSION）；雲端比這舊就在首頁提醒重新部署
 const BACKEND_NEEDED = 'v0.6';
 let backendVersion = '';
@@ -155,7 +155,7 @@ async function renderProjectSelects() {
 
 const BADGE_CLASS = {
   '正常': 'ok', '電量低': 'warn', '逾2個月未巡': 'yellow',
-  '逾3個月未巡': 'warn', '逾4個月未巡': 'bad', '相機故障': 'purple',
+  '逾3個月未巡': 'warn', '逾4個月未巡': 'bad', '未運作': 'purple',
 };
 
 async function renderHome() {
@@ -172,14 +172,14 @@ async function renderHome() {
   const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
   const dupIds = renderDataWarn(devices);
   if (!devices.length) {
-    list.innerHTML = '<div class="hint">此專案還沒有設備，點下方「＋ 新增設備」建立第一台。</div>';
+    list.innerHTML = '<div class="hint">此專案還沒有相機，點下方「＋ 新增相機」建立第一台。</div>';
     map.renderDevices([]);
     return;
   }
 
   list.innerHTML = devices.map(d => {
     const status = store.deviceStatus(d);
-    const camera = `序號 ${esc(d.id)}${d.cameraModel ? ` · ${esc(d.cameraModel)}` : ''}`;
+    const camera = `${esc(d.id)}${d.cameraModel ? ` · ${esc(d.cameraModel)}` : ''}`;
     const memo = d.lastNote ? `<small class="memo">📝 ${esc(d.lastNote)}</small>` : '';
     const dup = dupIds.get(String(d.id));
     return `<div class="dev" data-device="${esc(d.id)}">
@@ -241,7 +241,7 @@ function renderDataWarn(devices) {
       return twin ? `${d.id}（和 ${twin.id} 都會變成 ${to}，請確認是不是同一台）` : String(d.id);
     };
     const bad = [...issues.badIds.map(badId), ...issues.badCards.map(d => `${store.stationLabel(d)} 的 ${d.sdCard}`)];
-    if (bad.length) lines.push(`編號不是 CA／SD＋3 碼，請到試算表修改：${bad.join('、')}`);
+    if (bad.length) lines.push(`這些編號格式不對，請到試算表修改：${bad.join('、')}`);
   }
   const el = $('data-warn');
   el.hidden = !lines.length;
@@ -371,7 +371,7 @@ function historyItem(r, pending) {
     what.push(`🔁 換機 ${esc(r.deviceId)} → ${esc(r.newDeviceId)}`
       + `${r.newCameraModel ? `（${esc(r.newCameraModel)}）` : ''}${r.swapReason ? `：${esc(r.swapReason)}` : ''}`);
   } else if (r.running === false) {
-    what.push('⚠️ 相機故障或沒電');
+    what.push('⚠️ 離開時未運作');
   }
   if (r.batteryChanged) what.push(`🔋 換${esc(r.batteryTypeNew || '電池')}`);
   if (r.sdChanged) what.push(`💾 換卡 ${r.sdRetrieved ? `${esc(r.sdRetrieved)} → ` : ''}${esc(r.sdNew)}`);
@@ -401,61 +401,82 @@ function openStationHistory(id) {
 
 /* ═══════════ 出發準備 ═══════════ */
 
-let packSel = null; // 勾選的設備序號（字串）
+const PACK_OPTS_KEY = 'catpatrol.packOpts';
+const GUARD_LABEL = Object.fromEntries(stats.GUARD_ITEMS.map(([key, label]) => [key, label]));
+let packSel = null; // 勾選的相機編號（字串）
 
-async function renderPack({ reset = false } = {}) {
-  const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
-  const due = devices.filter(stats.isDue);
-  if (reset || !packSel) packSel = new Set(due.map(d => String(d.id)));
-  const chosen = devices.filter(d => packSel.has(String(d.id)));
-  const sum = stats.packSummary(chosen);
-
-  $('pack-summary').innerHTML = packSummaryHtml(sum);
-  const same = list => list.length === chosen.length && list.every(d => packSel.has(String(d.id)));
-  const preset = (name, label, list) =>
-    `<button type="button" data-preset="${name}"${same(list) && list.length ? ' class="on"' : ''}>${label}</button>`;
-  const guard = devices.filter(stats.lacksGuard);
-  $('pack-presets').innerHTML = preset('due', `逾 60 天＋故障（${due.length}）`, due)
-    + preset('guard', `缺防護（${guard.length}）`, guard)
-    + preset('all', `全部（${devices.length}）`, devices) + '<button type="button" data-preset="none">清除</button>';
-  $('pack-list').innerHTML = devices.length
-    ? devices.map(d => packRow(d, packSel.has(String(d.id)))).join('')
-    : '<p class="sec-note" style="margin:10px 0;">此專案還沒有設備。</p>';
+/** 上面三排（電池、記憶卡、防護套件）的選擇：每支手機各自記住 */
+function packOpts() {
+  try {
+    return { ...stats.PACK_DEFAULTS, ...JSON.parse(localStorage.getItem(PACK_OPTS_KEY) || '{}') };
+  } catch {
+    return { ...stats.PACK_DEFAULTS };
+  }
 }
 
-function packRow(d, on) {
-  const need = stats.packNeeds(d);
+function savePackOpts(opts) {
+  try { localStorage.setItem(PACK_OPTS_KEY, JSON.stringify(opts)); } catch { /* 無痕模式等：不記也沒關係 */ }
+}
+
+/** reset：剛打開，全部不勾 */
+async function renderPack({ reset = false } = {}) {
+  const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
+  if (reset || !packSel) packSel = new Set();
+  const opts = packOpts();
+  const chosen = devices.filter(d => packSel.has(String(d.id)));
+
+  $('pack-opts').querySelectorAll('[data-opt] button')
+    .forEach(b => b.classList.toggle('on', opts[b.parentElement.dataset.opt] === b.dataset.value));
+  $('pack-summary').innerHTML = packSummaryHtml(stats.packSummary(chosen, opts), opts);
+  $('pack-list').innerHTML = devices.length
+    ? devices.map(d => packRow(d, packSel.has(String(d.id)), opts)).join('')
+    : '<p class="sec-note" style="margin:10px 0;">此專案還沒有相機。</p>';
+}
+
+function packRow(d, on, opts) {
+  const need = stats.packNeeds(d, opts);
   const cfg = d.config || {};
   const bits = [`上次 ${shortDate(d.lastPatrolAt)}`,
-    d.running === false ? '相機故障' : `${d.batteryType || '電池'} ${d.batteryPct ?? '—'}%`];
-  if (cfg.ironCase === false) bits.push('沒鐵殼');
-  if (cfg.locked === false) bits.push('沒上鎖');
-  if (cfg.rainCover === false) bits.push('沒遮雨板');
-  const icons = (need.spare ? '📷' : '') + (need.battery ? '🔋' : '') + '💾'
-    + (need.iron ? '🛡' : '') + (need.lock ? '🔒' : '') + (need.rain ? '☂' : '');
+    d.running === false ? '未運作' : `${d.batteryType || '電池'} ${d.batteryPct ?? '—'}%`];
+  if (stats.GUARD_ITEMS.every(([key]) => cfg[key] == null)) bits.push('防護沒填過');
+  else if (need.guards.length) bits.push(`缺${need.guards.map(key => GUARD_LABEL[key]).join('、')}`);
+  const icons = (need.spare ? '📷' : '') + (need.battery ? '🔋' : '') + '💾' + (need.guards.length ? '🛡' : '');
   return `<div class="pick${on ? '' : ' off'}" data-pick="${esc(d.id)}" role="checkbox" aria-checked="${on}">`
     + `<span class="box${on ? ' on' : ''}">${on ? '✓' : ''}</span>`
     + `<div class="who"><b>${esc(store.stationLabel(d))}</b><small>${esc(bits.join(' · '))}</small></div>`
     + `<span class="need">${icons}</span></div>`;
 }
 
-/** [名稱, 數量, 哪幾台] */
-function packLines(s) {
-  const lines = s.battery.map(b => [`🔋 ${b.type}`, `${b.labels.length} 台份`, b.labels.join('、')]);
-  lines.push(['💾 記憶卡', `${s.sd} 張`, '每台一張']);
-  if (s.spare.length) {
-    lines.push(['📷 備機', `${s.spare.length} 台`, s.spare.map(x => `${x.label}${x.model ? `（${x.model}）` : ''}`).join('、')]);
+/** 清單的每一行 {k 名稱, q 數量, who 哪幾台, sub 縮排的細項}；畫面和「複製清單」共用 */
+function packLines(s, opts) {
+  const lines = [];
+  if (s.batteryTotal) {
+    lines.push({ k: '🔋 電池', q: `共 ${s.batteryTotal} 組` });
+    s.battery.forEach(b => lines.push({ k: b.type, q: `${b.labels.length} 組`, who: b.labels.join('、'), sub: true }));
   }
-  if (s.iron.length) lines.push(['🛡 鐵殼', `${s.iron.length} 個`, s.iron.join('、')]);
-  if (s.lock.length) lines.push(['🔒 鎖', `${s.lock.length} 個`, s.lock.join('、')]);
-  if (s.rain.length) lines.push(['☂ 遮雨板', `${s.rain.length} 片`, s.rain.join('、')]);
+  const sdNote = { half: `${s.count} 台的一半`, third: `${s.count} 台的 1/3` }[opts.sd] || '每台一張';
+  lines.push({ k: '💾 記憶卡', q: `${s.sd} 張`, who: sdNote });
+  if (s.spare.length) {
+    lines.push({ k: '📷 備用相機', q: `${s.spare.length} 台`,
+      who: s.spare.map(x => `${x.label}${x.model ? `（${x.model}）` : ''}`).join('、') });
+  }
+  if (s.guard.total) {
+    const full = s.guard.mode === 'full';
+    lines.push({ k: '🛡 防護套件', q: `共 ${s.guard.total} ${full ? '套' : '件'}`, who: full ? s.guard.kits.join('、') : '' });
+    // 全部上防護：每套三樣，列出各樣數量；補缺漏：各樣缺在哪幾台
+    stats.GUARD_ITEMS.forEach(([key, label, unit]) => {
+      const list = s.guard.items[key];
+      if (list.length) lines.push({ k: label, q: `${list.length} ${unit}`, who: full ? '' : list.join('、'), sub: true });
+    });
+  }
   return lines;
 }
 
-function packSummaryHtml(s) {
+function packSummaryHtml(s, opts) {
   if (!s.count) return '<h3>還沒勾選相機</h3><p class="sec-note" style="margin:0;">從下面勾這趟要去的相機。</p>';
   return `<h3>這趟 ${s.count} 台，要帶：</h3><ul class="take">`
-    + packLines(s).map(([n, q, who]) => `<li><span class="n">${esc(n)}</span>${esc(q)}<small>${esc(who)}</small></li>`).join('')
+    + packLines(s, opts).map(l => `<li${l.sub ? ' class="sub"' : ''}><span class="n">${esc(l.k)}</span><span class="q">${esc(l.q)}</span>`
+      + `${l.who ? `<small>${esc(l.who)}</small>` : ''}</li>`).join('')
     + '</ul><button type="button" class="btn sub" id="pack-copy" style="margin-top:10px;">📋 複製清單</button>';
 }
 
@@ -477,32 +498,37 @@ async function copyText(text, btn) {
 }
 
 $('scr-pack').addEventListener('click', async e => {
+  const opt = e.target.closest('[data-opt] button');
+  if (opt) {
+    savePackOpts({ ...packOpts(), [opt.parentElement.dataset.opt]: opt.dataset.value });
+    return renderPack();
+  }
   const pick = e.target.closest('[data-pick]');
-  const preset = e.target.closest('[data-preset]');
   if (pick) {
     const id = pick.dataset.pick;
     if (packSel.has(id)) packSel.delete(id); else packSel.add(id);
     return renderPack();
   }
+  const preset = e.target.closest('[data-preset]');
   if (preset) {
     const devices = await store.getDevices(store.settings.projectId);
-    const list = { due: devices.filter(stats.isDue), guard: devices.filter(stats.lacksGuard), all: devices, none: [] }[preset.dataset.preset];
-    packSel = new Set(list.map(d => String(d.id)));
+    packSel = new Set(preset.dataset.preset === 'all' ? devices.map(d => String(d.id)) : []);
     return renderPack();
   }
   if (e.target.closest('#pack-copy')) {
+    const opts = packOpts();
     const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
     const chosen = devices.filter(d => packSel.has(String(d.id)));
-    const s = stats.packSummary(chosen);
+    const s = stats.packSummary(chosen, opts);
     const head = `🎒 ${shortDate(store.stamp())} 出發準備（${s.count} 台：${chosen.map(store.stationLabel).join('、')}）`;
-    const text = [head, ...packLines(s).map(([n, q, who]) => `${n} ${q}${who && who !== '每台一張' ? `：${who}` : ''}`)].join('\n');
-    copyText(text, e.target.closest('#pack-copy'));
+    const lines = packLines(s, opts).map(l => `${l.sub ? '　' : ''}${l.k} ${l.q}${l.who ? `：${l.who}` : ''}`);
+    copyText([head, ...lines].join('\n'), e.target.closest('#pack-copy'));
   }
 });
 
 /* ═══════════ 統計 ═══════════ */
 
-const REASON_COLOR = { '沒電': 'var(--red)', '故障': '#7b2cbf', '記憶卡滿': 'var(--amber)' };
+const REASON_COLOR = { '沒電': 'var(--red)', '未運作': '#7b2cbf', '記憶卡滿': 'var(--amber)' };
 const statsState = { tab: 'down', span: 'month', y: null, m: null };
 let workTsv = '';
 
@@ -581,7 +607,7 @@ function downHtml(devices, records, from, to) {
   return `<div class="card"><div class="kpi">${kpi}</div></div>`
     + `<div class="card"><h3>哪幾台漏拍</h3>${which}</div>`
     + trendHtml(devices, records)
-    + '<p class="foot">漏拍＝「中間有停」的停止日 → 下次巡檢；「相機故障或沒電」→ 修好或換機的那次巡檢。跨月的會拆到各月。點樣點可看履歷。<br>'
+    + '<p class="foot">漏拍＝「上次巡檢後有停過」的停止日 → 下次巡檢；「離開時相機未運作」→ 修好或換機的那次巡檢。跨月的會拆到各月。點樣點可看履歷。<br>'
     + '⚠ 還沒巡到的相機不知道有沒有停過，要等下次巡檢填了才補進來，所以最近一兩個月的數字之後可能會往下修。</p>';
 }
 
@@ -608,7 +634,7 @@ function workHtml(records, from, to, projectName) {
   const tsvRows = [[title], [], ['人員', '出勤日', '台次', '換電', '換卡', '換機'],
     ...w.people.map(p => [p.name, p.days, p.count, p.battery, p.sd, p.swap]),
     ['合計', w.total.days, w.total.count, w.total.battery, w.total.sd, w.total.swap]];
-  if (w.battery.length) tsvRows.push([], ['電池類型', '台份'], ...w.battery.map(b => [b.type, b.n]));
+  if (w.battery.length) tsvRows.push([], ['電池類型', '組'], ...w.battery.map(b => [b.type, b.n]));
   tsvRows.push([], ['日期', '人員', '台數'], ...w.detail.map(x => [x.day, x.name, x.n]));
   workTsv = tsvRows.map(r => r.join('\t')).join('\n');
 
@@ -618,7 +644,7 @@ function workHtml(records, from, to, projectName) {
     + w.people.map(p => `<tr>${[p.name, p.days, p.count, p.battery, p.sd, p.swap].map(td).join('')}</tr>`).join('')
     + `<tr class="sum">${['合計', w.total.days, w.total.count, w.total.battery, w.total.sd, w.total.swap].map(td).join('')}</tr></table>`;
   const battery = w.battery.length
-    ? `<div class="card"><h3>電池用量</h3><table class="t"><tr><th>類型</th><th>台份</th></tr>`
+    ? `<div class="card"><h3>電池用量</h3><table class="t"><tr><th>類型</th><th>組</th></tr>`
       + w.battery.map(b => `<tr>${td(b.type)}${td(b.n)}</tr>`).join('') + '</table></div>'
     : '';
   const detail = '<table class="t"><tr><th>日期</th><th>人員</th><th>台數</th></tr>'
@@ -904,8 +930,8 @@ async function loadPatrolDevice(deviceId) {
   $('last-title').textContent =
     `📋 上次巡檢狀態（${device.lastPatrolAt || '—'} · ${device.lastInspector || '—'}）`;
   $('last-body').innerHTML = [
-    ['運作狀態', device.running === false ? '⛔ 相機故障或沒電' : '✅ 正常運作'],
-    ['樣點 / 序號', `${device.stationId || '—'} / ${device.id}`],
+    ['運作狀態', device.running === false ? '⛔ 未運作' : '✅ 正常運作'],
+    ['樣點 / 相機', `${device.stationId || '—'} / ${device.id}`],
     ['相機型號', device.cameraModel || '—'],
     ['記憶卡', `${device.sdCard || '—'}${device.prevSdCard ? `（上一張 ${device.prevSdCard}）` : ''}`],
     ['電池', batteryText(device)],
@@ -918,7 +944,7 @@ async function loadPatrolDevice(deviceId) {
   const when = editing ? editing.payload.patrolAt : store.stamp();
   const who = editing ? editing.payload.inspector : store.settings.inspector;
   $('patrol-meta').textContent = `${when} · ${who}`;
-  $('pt-sd-retrieved').textContent = `取回卡：${device.sdCard || '—'}（自動記錄）`;
+  $('pt-sd-retrieved').textContent = `收回的卡：${device.sdCard || '—'}（自動記錄）`;
   $('pt-swap-note').textContent =
     `${store.stationLabel(device)} 的 ${device.id} 會標為「已撤下」，新相機沿用此樣點的位置與設定。`;
 
@@ -1062,7 +1088,7 @@ $('pt-save').addEventListener('click', async () => {
   if (model !== device.cameraModel) openConfigForModel(model);
   const cfgChanged = $('pt-cfg-changed').classList.contains('on');
 
-  let ok = form.require($('pt-battery-pct'), '請選擇目前電量');
+  let ok = form.require($('pt-battery-pct'), '請選擇離開時電量');
   ok = await validateAsk(answers, device, swapped) && ok;
   if (swapped) {
     ok = form.requireCode($('pt-new-id'), '新相機編號') && ok;
@@ -1140,7 +1166,7 @@ $('pt-save').addEventListener('click', async () => {
     const item = queue.find(q => q.id === editing.id);
     if (item?.status === 'uploading') return alert('這筆正在上傳，請等幾秒再按一次存檔。');
     if (!item || !store.canModifyRecord(item, queue)) {
-      alert('這筆紀錄已經不能修改（可能已從佇列清除），修改內容沒有儲存。');
+      alert('這筆紀錄已經不能修改（可能已從待上傳清單清除），修改內容沒有儲存。');
       cancelEdit();
       return go('scr-sync');
     }
@@ -1160,7 +1186,7 @@ $('pt-save').addEventListener('click', async () => {
 /* ═══════════ 同步與設定 ═══════════ */
 
 const QUEUE_LABEL = {
-  addRecord: '巡檢紀錄', updateRecord: '修改巡檢紀錄', addDevice: '新增設備', addProject: '建立專案',
+  addRecord: '巡檢紀錄', updateRecord: '修改巡檢紀錄', addDevice: '新增相機', addProject: '建立專案',
   saveFieldDef: '自訂欄位', deleteFieldDef: '刪除自訂欄位',
 };
 const QUEUE_ICON = {
@@ -1214,7 +1240,7 @@ async function renderSync() {
   const me = store.settings.me;
   $('me-text').textContent = me.email
     ? `${me.name || '（白名單未設定姓名）'}　${me.email}`
-    : '尚未取得登入身分（連上網路開啟一次即可；一直這樣代表雲端 Apps Script 還是舊版）';
+    : '還沒取得登入帳號（連上網路打開一次就會有）';
   $('versions').textContent = `網頁 ${APP_VERSION} · 雲端程式 ${backendVersion || '（尚未連線或舊版）'}`;
   await renderFieldDefs();
 }
@@ -1316,7 +1342,7 @@ $('upload-now').addEventListener('click', async e => {
   btn.disabled = true;
   const result = await sync.syncNow({ force: true });
   noteSyncResult(result);
-  btn.textContent = '立即全部上傳';
+  btn.textContent = '現在上傳';
   btn.disabled = false;
 
   await renderSync();
@@ -1360,8 +1386,8 @@ async function refreshFromCloud() {
     backendVersion = data.version || '';
     // Apps Script 只存檔沒「部署新版本」時，網址上跑的還是舊程式：新欄位（例如樣點編號）不會出現
     if (!backendVersion || olderThan(backendVersion, BACKEND_NEEDED)) {
-      setCloudHint(`⚠️ 雲端的 Apps Script 還是舊版（${backendVersion || 'v0.1 以前'}，需要 ${BACKEND_NEEDED}）`
-        + '，新功能（例如履歷、統計、中間有停）拿不到或存不進試算表。請到 Apps Script「管理部署作業」把現有的部署改成新版本。', true);
+      setCloudHint(`⚠️ 雲端程式是舊版（${backendVersion || 'v0.1 以前'}，這版需要 ${BACKEND_NEEDED}）`
+        + '，部分新功能存不進試算表。請到 Apps Script「管理部署作業」部署新版本。', true);
     } else {
       setCloudHint(`☁️ 已與雲端同步（${store.stamp().slice(11)}）`);
     }

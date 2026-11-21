@@ -6,6 +6,13 @@ import { markError } from './form.js';
  * - Meidase P60：零售頁只查到最高 32MP、影片 1296p/1080p（其他照片檔位與影片秒數範圍查不到，用「其他」自填）
  * - Meidase P60 Pro：零售頁（影片秒數範圍查不到）
  * - Browning Spec Ops Elite HP5 Ultra：官網與評測（照片只查到最高 46MP、最低 4MP，中間檔位用「其他」自填）
+ * - Browning Spec Ops Elite HP5（BTC-8E-HP5）：官方說明書 p.7–9、p.23（2026-11-21 讀）——照片 4/8/12/24MP；
+ *   影片都是 1920×1080，HIGH 30fps、ULTRA 60fps；長度 5、10、20、30 秒、1、2 分；夜間影片最長 20 秒；
+ *   連拍 1–8 張；只有拍照、影片、縮時三種模式（沒有照片＋影片）
+ * - Ereagle E1S（ERE-E1S）：官方說明書 ED-E1S-TM-01 V112 p.12、p.19–20、p.31——照片 12M（插補）/8M/5M/3M/2M/1M；
+ *   影片 1080P 30fps、720P 60fps、720P 30fps、480P；長度 1–120 秒；連拍 1–5 張；有 Camera+Video（先拍照再錄影）
+ *
+ * videoSecNight：夜間影片秒數另有上限時才寫；modes：只有部分拍攝模式時才寫（沒寫＝三種都有）
  */
 export const CAMERA_MODELS = {
   'Meidase P70': {
@@ -23,10 +30,22 @@ export const CAMERA_MODELS = {
     video: ['1440p', '1080p'],
     videoSec: null,
   },
+  'Browning Spec Ops Elite HP5': {
+    photo: ['24MP', '12MP', '8MP', '4MP'],
+    video: ['1080p 60fps', '1080p 30fps'],
+    videoSec: [5, 120],
+    videoSecNight: [5, 20],
+    modes: ['照片', '影片'],
+  },
   'Browning Spec Ops Elite HP5 Ultra': {
     photo: ['46MP', '4MP'],
     video: ['1440p', '1080p'],
     videoSec: [5, 120],
+  },
+  'Ereagle E1S': {
+    photo: ['12MP', '8MP', '5MP', '3MP', '2MP', '1MP'],
+    video: ['1080p', '720p 60fps', '720p 30fps', '480p'],
+    videoSec: [1, 120],
   },
 };
 
@@ -69,12 +88,12 @@ export function configSummary(cfg = {}) {
       : `${cfg.videoSec ?? '—'}秒`;
     parts.push(`影片${cfg.videoQuality || '—'} ${sec}`);
   }
-  parts.push(`感度${cfg.sensitivity || '—'}`, `間隔${cfg.interval ?? '—'}s`, `工作時間${cfg.workHours || '全天'}`);
+  parts.push(`靈敏度${cfg.sensitivity || '—'}`, `間隔${cfg.interval ?? '—'}秒`, `工作時間${cfg.workHours || '全天'}`);
   // 舊資料三項都沒填過就不顯示
   if (GUARDS.some(([key]) => cfg[key] != null)) {
     parts.push(GUARDS.map(([key, , label]) => `${label}${cfg[key] ? '✓' : cfg[key] === false ? '✗' : '—'}`).join(' '));
   }
-  if (cfg.mount) parts.push(`固定${cfg.mount}`);
+  if (cfg.mount) parts.push(`${cfg.mount}固定`);
   return parts.join(' · ');
 }
 
@@ -108,11 +127,25 @@ export function configForm(prefix) {
   const selValue = name => (el(name).value === OTHER ? el(`${name}-other`).value.trim() : el(name).value);
   const selTarget = name => (el(name).value === OTHER ? el(`${name}-other`) : el(name));
 
+  /** 秒數範圍：夜間另有上限的型號（例如 HP5 夜間最長 20 秒）用自己的 */
+  const secRange = name => (name === 'video-sec-night' && spec().videoSecNight) || spec().videoSec;
+
   function applySecRange() {
-    const range = spec().videoSec;
     ['video-sec', 'video-sec-night'].forEach(name => {
+      const range = secRange(name);
       el(name).placeholder = range ? `${range[0]}–${range[1]}` : '秒';
     });
+  }
+
+  /** 型號沒有的拍攝模式不顯示；正在用的模式被藏起來時改回「照片」 */
+  function applyModes() {
+    const allowed = spec().modes;
+    const buttons = [...el('mode').querySelectorAll('button')];
+    buttons.forEach(b => { b.hidden = !!allowed && !allowed.includes(b.dataset.value); });
+    if (buttons.some(b => b.hidden && b.classList.contains('on'))) {
+      buttons.forEach(b => b.classList.toggle('on', b.dataset.value === '照片'));
+      showMode('照片');
+    }
   }
 
   // 拍攝模式按鈕的 on 狀態由 app.js 的共用點擊處理切換；這裡直接看被點的那顆
@@ -140,6 +173,7 @@ export function configForm(prefix) {
     fillSelect('photo-q', spec().photo, keep('photo-q', spec().photo));
     fillSelect('video-q', spec().video, keep('video-q', spec().video));
     applySecRange();
+    applyModes();
   }
 
   /** 帶入既有設定（巡檢時預填上次值） */
@@ -151,6 +185,7 @@ export function configForm(prefix) {
     fillSelect('photo-q', spec().photo, cfg.photoQuality || '');
     fillSelect('video-q', spec().video, cfg.videoQuality || '');
     applySecRange();
+    applyModes();
     el('burst').value = cfg.burst ?? '';
     el('video-sec').value = cfg.videoSec ?? '';
     el('video-sec-night').value = cfg.videoSecNight ?? cfg.videoSec ?? ''; // 舊資料沒有夜間：先帶日間的
@@ -195,8 +230,8 @@ export function configForm(prefix) {
     if (m !== '影片') need(selValue('photo-q'), selTarget('photo-q'), '請選擇照片畫質');
     if (m !== '照片') {
       need(selValue('video-q'), selTarget('video-q'), '請選擇影片畫質');
-      const range = spec().videoSec;
       ['video-sec', 'video-sec-night'].forEach(name => {
+        const range = secRange(name);
         const sec = Number(el(name).value);
         need(sec > 0 && (!range || (sec >= range[0] && sec <= range[1])), el(name),
           range ? `請填 ${range[0]}–${range[1]} 秒` : '請填寫影片秒數');
@@ -207,7 +242,7 @@ export function configForm(prefix) {
       need(el('hours-end').value, el('hours-end'), '請填結束時間');
     }
     // 新設備一定要選；巡檢改設定時，舊設備沒填過的由「這台還沒填過」那一格問
-    if (prefix === 'add') need(mountValue(), el('mount'), '請選固定方式');
+    if (prefix === 'add') need(mountValue(), el('mount'), '請選擇固定方式');
     return ok;
   }
 

@@ -23,7 +23,7 @@
 
   <!-- ═══════════ 設備清單 ═══════════ -->
   <section class="screen active" id="scr-home">
-    <h2 class="pg">設備清單</h2>
+    <h2 class="pg">相機清單</h2>
     <label class="f">目前專案</label>
     <div class="row" style="margin-bottom:12px;">
       <select id="project-select"></select>
@@ -36,22 +36,22 @@
     <div id="devmap"></div>
     <div class="map-legend">
       <span><i style="background:#2d6a4f;"></i>正常</span>
-      <span><i style="background:#e9b200;"></i>逾2月未巡</span>
-      <span><i style="background:#e07a00;"></i>逾3月</span>
-      <span><i style="background:#c0392b;"></i>逾4月</span>
-      <span><i style="background:#7b2cbf;"></i>故障/沒電</span>
+      <span><i style="background:#e9b200;"></i>逾2個月</span>
+      <span><i style="background:#e07a00;"></i>逾3個月</span>
+      <span><i style="background:#c0392b;"></i>逾4個月</span>
+      <span><i style="background:#7b2cbf;"></i>未運作</span>
     </div>
 
     <button class="btn sub pack-open" type="button" data-go="scr-pack">🎒 出發準備：這趟要帶什麼</button>
 
     <div id="device-list"></div>
 
-    <button class="btn" data-go="scr-add" style="margin-top:8px;">＋ 新增設備</button>
+    <button class="btn" data-go="scr-add" style="margin-top:8px;">＋ 新增相機</button>
   </section>
 
   <!-- ═══════════ 新增設備 ═══════════ -->
   <section class="screen" id="scr-add">
-    <h2 class="pg">新增設備</h2>
+    <h2 class="pg">新增相機</h2>
 
     <div class="card">
       <h3>基本資料</h3>
@@ -78,7 +78,7 @@
     </div>
 
     <div class="card">
-      <h3>位置（首次設定）</h3>
+      <h3>位置</h3>
       <label class="f">座標（緯度, 經度） <span class="req">*</span></label>
       <input type="text" id="add-coord" placeholder="例：23.51234, 120.30772（可直接貼 Google 地圖的座標）">
       <div class="row loc-btns">
@@ -88,7 +88,7 @@
     </div>
 
     <div class="card">
-      <h3>耗材</h3>
+      <h3>記憶卡與電池</h3>
       <label class="f">記憶卡編號 <span class="req">*</span></label>
       <div class="prefixed"><span class="pfx">SD</span>
         <input type="text" id="add-sd" data-code="SD" inputmode="numeric" maxlength="3" placeholder="只填數字，例：32 → SD032"></div>
@@ -109,8 +109,8 @@
     </div>
 
     <div class="card">
-      <h3>設備設定（首次設定）</h3>
-      <p class="sec-note">之後巡檢時沿用，有變動才需修改。</p>
+      <h3>相機設定</h3>
+      <p class="sec-note">之後巡檢沿用，有改再修改。</p>
       <label class="f">拍攝模式</label>
       <div class="seg" data-seg id="add-mode">
         <button type="button" class="on" data-value="照片">照片</button>
@@ -134,13 +134,13 @@
         </div>
       </div>
       <div class="row" style="margin-top:10px;">
-        <div><label class="f" style="margin-top:0;">感度</label>
+        <div><label class="f" style="margin-top:0;">靈敏度</label>
           <select id="add-sens"><option>高</option><option selected>中</option><option>低</option></select>
         </div>
         <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" id="add-interval" value="0" min="0" inputmode="numeric"></div>
       </div>
       <div class="tgl-row" style="margin-top:6px;">
-        <span>指定工作時段（關閉＝全天）</span>
+        <span>只在特定時段拍（關閉＝整天拍）</span>
         <button class="tgl" type="button" data-tgl data-reveal="#add-hours" id="add-hours-on"></button>
       </div>
       <div id="add-hours" class="reveal" hidden>
@@ -170,10 +170,11 @@
       <div class="photos" id="add-photos">
         <button class="add" type="button">＋</button>
       </div>
-      <p class="sec-note" style="margin:8px 0 0;">建議拍：設備正面、架設角度、周遭環境。</p>
+      <p class="sec-note" style="margin:8px 0 0;">建議拍：相機正面、架設角度、周遭環境。</p>
     </div>
 
-    <button class="btn" id="add-save">儲存設備（離線暫存）</button>
+    <button class="btn" id="add-save">儲存相機</button>
+    <p class="sec-note save-note">先存在手機，有網路時自動上傳。</p>
   </section>
 
   <!-- ═══════════ 巡檢 ═══════════ -->
@@ -191,7 +192,7 @@
     </div>
     <div class="nearest-hint" id="nearest-hint" hidden></div>
 
-    <div id="patrol-empty" class="hint" hidden>此專案還沒有設備，請先到「新增」分頁建立。</div>
+    <div id="patrol-empty" class="hint" hidden>此專案還沒有相機，請先到「新增」分頁建立。</div>
 
     <div id="patrol-form" hidden>
       <div class="card last-card">
@@ -242,7 +243,7 @@
         </div>
 
         <div class="tgl-row">
-          <span>中間有停（沒電或記憶卡滿）</span>
+          <span>上次巡檢後有停過（沒電或記憶卡滿）</span>
           <button class="tgl" type="button" data-tgl data-reveal="#stop-new" id="pt-stopped"></button>
         </div>
         <div id="stop-new" class="reveal" hidden>
@@ -268,13 +269,13 @@
           </select>
         </div>
 
-        <label class="f">目前電量 % <span class="req">*</span></label>
+        <label class="f">離開時電量 % <span class="req">*</span></label>
         <select id="pt-battery-pct">
           <option value="">請選擇…</option><option>100</option><option>75</option><option>50</option><option>25</option>
         </select>
 
         <div class="tgl-row" style="margin-top:6px;">
-          <span>設定有變動</span>
+          <span>相機設定有改</span>
           <button class="tgl" type="button" data-tgl data-reveal="#cfg-new" id="pt-cfg-changed"></button>
         </div>
         <div id="cfg-new" class="reveal" hidden>
@@ -301,13 +302,13 @@
             </div>
           </div>
           <div class="row" style="margin-top:10px;">
-            <div><label class="f" style="margin-top:0;">感度</label>
+            <div><label class="f" style="margin-top:0;">靈敏度</label>
               <select id="pt-sens"><option>高</option><option>中</option><option>低</option></select>
             </div>
             <div><label class="f" style="margin-top:0;">間隔(秒)</label><input type="number" id="pt-interval" min="0" inputmode="numeric"></div>
           </div>
           <div class="tgl-row" style="margin-top:6px;">
-            <span>指定工作時段（關閉＝全天）</span>
+            <span>只在特定時段拍（關閉＝整天拍）</span>
             <button class="tgl" type="button" data-tgl data-reveal="#pt-hours" id="pt-hours-on"></button>
           </div>
           <div id="pt-hours" class="reveal" hidden>
@@ -333,7 +334,7 @@
         </div>
 
         <div class="tgl-row">
-          <span>位置有變動（重新定位）</span>
+          <span>相機位置有移動</span>
           <button class="tgl" type="button" data-tgl data-reveal="#loc-new" id="pt-loc-changed"></button>
         </div>
         <div id="loc-new" class="reveal" hidden>
@@ -346,9 +347,10 @@
         </div>
 
         <div class="tgl-row">
-          <span>相機故障或沒電（現場無相機）</span>
+          <span>離開時相機未運作（故障、沒電或不見了）</span>
           <button class="tgl" type="button" data-tgl id="pt-down"></button>
         </div>
+        <p class="sec-note" style="margin:0;">打開的話，統計會算漏拍到下次巡檢。</p>
       </div>
 
       <div class="card">
@@ -361,7 +363,7 @@
         <div class="photos" id="pt-photos">
           <button class="add" type="button">＋</button>
         </div>
-        <p class="sec-note" style="margin:8px 0 0;">上傳時自動壓縮，存入雲端「專案／設備／日期」資料夾。</p>
+        <p class="sec-note" style="margin:8px 0 0;">上傳時自動壓縮，存入雲端「專案／相機／日期」資料夾。</p>
         <p class="sec-note" id="pt-photos-uploaded" style="margin:4px 0 0;" hidden>這筆已上傳過，原本的照片保留在雲端；這裡拍的會補傳上去。</p>
       </div>
 
@@ -370,7 +372,8 @@
         <textarea rows="2" id="pt-note" placeholder="其他觀察事項…"></textarea>
       </div>
 
-      <button class="btn" id="pt-save">完成巡檢（離線暫存 → 佇列）</button>
+      <button class="btn" id="pt-save">儲存巡檢</button>
+      <p class="sec-note save-note">先存在手機，有網路時自動上傳。</p>
     </div>
   </section>
 
@@ -382,9 +385,9 @@
     <button class="btn sub" type="button" id="relogin" style="margin-bottom:12px;" hidden>🔒 重新登入</button>
 
     <div class="card">
-      <h3>上傳佇列</h3>
+      <h3>待上傳的資料</h3>
       <div id="queue-list"></div>
-      <button class="btn sub" id="upload-now" style="margin-top:10px;">立即全部上傳</button>
+      <button class="btn sub" id="upload-now" style="margin-top:10px;">現在上傳</button>
       <button class="btn sub" type="button" id="clear-done" style="margin-top:8px;" hidden>清除已上傳的項目</button>
       <p class="sec-note" style="margin:8px 0 0;">已上傳的項目保留 7 天後自動清除。</p>
     </div>
@@ -416,12 +419,26 @@
 
   <!-- ═══════════ 出發準備 ═══════════ -->
   <section class="screen" id="scr-pack">
-    <h2 class="pg"><button class="back" type="button" data-go="scr-home" aria-label="回設備清單">‹</button>🎒 出發準備</h2>
+    <h2 class="pg"><button class="back" type="button" data-go="scr-home" aria-label="回相機清單">‹</button>🎒 出發準備</h2>
+    <div id="pack-opts">
+      <div class="optrow"><span>電池</span><div class="seg" data-opt="battery">
+        <button type="button" data-value="all">全部換</button>
+        <button type="button" data-value="low">50% 以下才換</button></div></div>
+      <div class="optrow"><span>記憶卡</span><div class="seg" data-opt="sd">
+        <button type="button" data-value="each">每台一張</button>
+        <button type="button" data-value="half">備一半</button>
+        <button type="button" data-value="third">備 1/3</button></div></div>
+      <div class="optrow"><span>防護套件</span><div class="seg" data-opt="guard">
+        <button type="button" data-value="full">全部上防護</button>
+        <button type="button" data-value="gaps">補缺漏</button></div></div>
+    </div>
     <div class="card take-card" id="pack-summary"></div>
-    <div class="seg" id="pack-presets"></div>
+    <div class="row pack-presets">
+      <button class="btn sub" type="button" data-preset="all">全選</button>
+      <button class="btn sub" type="button" data-preset="none">清除</button>
+    </div>
     <div class="card pick-list" id="pack-list"></div>
-    <p class="foot">要換電池＝上次電量 ≤ 50%，或相機故障／沒電（備機和電池都帶）；外接電源的不算。記憶卡每台一張。
-      鐵殼、鎖、遮雨板只算巡檢時記為「沒有」的。</p>
+    <p class="foot">電池與防護怎麼算，依上面的選擇。外接電源的相機不帶電池；還沒填過防護的，當作都缺。</p>
   </section>
 
   <!-- ═══════════ 統計 ═══════════ -->
@@ -460,7 +477,7 @@
 </div>
 
 <nav class="nav">
-  <button class="active" data-screen="scr-home"><span class="ic">🏠</span>設備</button>
+  <button class="active" data-screen="scr-home"><span class="ic">🏠</span>相機</button>
   <button data-screen="scr-add"><span class="ic">➕</span>新增</button>
   <button data-screen="scr-patrol"><span class="ic">✅</span>巡檢</button>
   <button data-screen="scr-stats"><span class="ic">📊</span>統計</button>

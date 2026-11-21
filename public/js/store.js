@@ -62,7 +62,7 @@ export const stationLabel = d => d.stationId || d.id;
 
 /** 優先順序：相機故障 > 未巡天數（一個月以 30 天計）> 電量低 > 正常 */
 export function deviceStatus(d) {
-  if (d.running === false) return '相機故障';
+  if (d.running === false) return '未運作';
   const days = daysSince(d.lastPatrolAt);
   if (days > 120) return '逾4個月未巡';
   if (days > 90) return '逾3個月未巡';
@@ -83,7 +83,7 @@ export function batteryDays(d) {
 export function deviceSummary(d) {
   const status = deviceStatus(d);
   const when = `上次巡檢 ${dateOnly(d.lastPatrolAt)}`;
-  if (status === '相機故障') return `${when} · 相機故障或沒電 · ${d.lastInspector || ''}`;
+  if (status === '未運作') return `${when} · 未運作 · ${d.lastInspector || ''}`;
   const days = batteryDays(d);
   const battery = `電量 ${d.batteryPct ?? '—'}%${days != null ? `（電池 ${days} 天）` : ''}`;
   return `${when} · ${battery} · ${d.lastInspector || ''}`;

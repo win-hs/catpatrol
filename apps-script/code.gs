@@ -7,7 +7,7 @@
  */
 
 const TOKEN_PROP = 'API_TOKEN';          // 指令碼屬性名稱；值要和 Cloudflare Worker 的 API_TOKEN 一樣
-const VERSION = 'v0.6';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
+const VERSION = 'v0.7';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
@@ -705,12 +705,12 @@ function configSummary_(cfg) {
       : blank_(cfg.videoSec) + '秒';
     parts.push('影片' + (cfg.videoQuality || '—') + ' ' + sec);
   }
-  parts.push('感度' + cfg.sensitivity, '間隔' + cfg.interval + 's', '工作時間' + (cfg.workHours || '全天'));
+  parts.push('靈敏度' + cfg.sensitivity, '間隔' + cfg.interval + '秒', '工作時間' + (cfg.workHours || '全天'));
   const guards = [['鐵殼', cfg.ironCase], ['上鎖', cfg.locked], ['遮雨板', cfg.rainCover]];
   if (guards.some(g => g[1] != null)) {
     parts.push(guards.map(g => g[0] + (g[1] ? '✓' : g[1] === false ? '✗' : '—')).join(' '));
   }
-  if (cfg.mount) parts.push('固定' + cfg.mount);
+  if (cfg.mount) parts.push(cfg.mount + '固定');
   return parts.join(' · ');
 }
 

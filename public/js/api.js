@@ -24,7 +24,7 @@ async function parse(res) {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error(`伺服器回應 HTTP ${res.status}，內容不是 JSON`);
+    throw new Error(`雲端沒有正常回應（HTTP ${res.status}）`);
   }
   if (!data.ok) throw new Error(data.error || '雲端回傳未知錯誤');
   return data;

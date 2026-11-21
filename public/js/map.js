@@ -7,7 +7,7 @@ const STATUS_COLOR = {
   '逾2個月未巡': '#e9b200',
   '逾3個月未巡': '#e07a00',
   '逾4個月未巡': '#c0392b',
-  '相機故障': '#7b2cbf',
+  '未運作': '#7b2cbf',
 };
 
 const NORMAL_STYLE = { radius: 9, color: '#fff', weight: 2 };
@@ -91,7 +91,7 @@ export function renderDevices(devices) {
       })
         // 樣點編號常駐顯示在點位旁；有備註時加 📝，點開看內容
         .bindTooltip(esc(d.label) + (d.memo ? ' 📝' : ''), { permanent: true, direction: 'right', offset: [8, 0], className: 'dev-label' })
-        .bindPopup(`<div class="dev-popup"><b>${esc(d.label)}</b><br><small>序號 ${esc(d.id)}`
+        .bindPopup(`<div class="dev-popup"><b>${esc(d.label)}</b><br><small>${esc(d.id)}`
           + `${d.model ? ` · ${esc(d.model)}` : ''}<br>${d.status} · ${esc(d.note)}</small>`
           + (d.memo ? `<div class="dev-memo">📝 ${esc(d.memo)}</div>` : '')
           + `<button type="button" class="popup-patrol" data-patrol="${esc(d.id)}">✅ 巡檢這台</button></div>`)

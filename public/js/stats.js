@@ -1,5 +1,5 @@
 // 相機履歷、出發準備、統計（漏拍、工作量）、資料檢查的計算。純函式：不碰畫面也不碰資料庫，可以直接在 Node 測試
-import { stationLabel, daysSince } from './store.js';
+import { stationLabel } from './store.js';
 import { sdId, isCamId, isSdId } from './form.js';
 
 const DAY = 86400000;
@@ -61,7 +61,7 @@ export function downtimes(records, now = Date.now()) {
     if (r.running === false && !r.cameraSwapped) {
       const next = list[i + 1];
       const end = next ? toMs(next.patrolAt) : now;
-      if (end > at) out.push({ deviceId: r.deviceId, start: at, end, reason: '故障', ongoing: !next });
+      if (end > at) out.push({ deviceId: r.deviceId, start: at, end, reason: '未運作', ongoing: !next });
     }
   }));
   return out;
@@ -187,48 +187,66 @@ export function workload(records, from, to) {
 
 /* ═══════════ 出發準備 ═══════════ */
 
-/** 預設要去的：逾 60 天沒巡（和地圖變黃同一條線），或相機故障／沒電 */
-export const isDue = d => d.running === false || daysSince(d.lastPatrolAt) > 60;
+/** 怎麼帶（出發準備上面三排）：電池 all＝全部換／low＝50% 以下才換；記憶卡 each／half／third；防護 full＝整套／gaps＝補缺漏 */
+export const PACK_DEFAULTS = { battery: 'all', sd: 'each', guard: 'full' };
 
-/** 缺防護：鐵殼、鎖、遮雨板有一樣記為「沒有」（還沒填過的不算，巡檢時會問） */
-export const lacksGuard = d => {
-  const cfg = d.config || {};
-  return cfg.ironCase === false || cfg.locked === false || cfg.rainCover === false;
-};
+/** 現場防護三樣；沒記為「有」的都算缺（還沒填過的也算，寧可多帶） */
+export const GUARD_ITEMS = [['ironCase', '鐵殼', '個'], ['locked', '鎖', '個'], ['rainCover', '遮雨板', '片']];
+export const missingGuards = d => GUARD_ITEMS.filter(([key]) => (d.config || {})[key] !== true).map(([key]) => key);
 
 /**
- * 這台要帶什麼：換電池＝上次電量 ≤ 50%，或相機故障／沒電（外接電源不算）；記憶卡每台一張；
- * 故障要帶備機；現場防護記為「沒有」的（不是沒填）帶過去補
+ * 這台要帶什麼：
+ *  battery＝電池類型（不用帶為 null；外接電源一律不帶）：全部換＝每台都帶，50% 以下才換＝電量 ≤ 50% 或離開時未運作
+ *  spare＝未運作要帶備用相機；guards＝缺的防護
  */
-export function packNeeds(d) {
+export function packNeeds(d, opts = PACK_DEFAULTS) {
   const down = d.running === false;
-  const cfg = d.config || {};
   const low = d.batteryPct != null && d.batteryPct !== '' && Number(d.batteryPct) <= 50;
+  const wantBattery = opts.battery === 'all' || down || low;
   return {
-    battery: d.batteryType !== '外接電源' && (down || low) ? (d.batteryType || '（未填類型）') : null,
-    sd: true,
+    battery: d.batteryType !== '外接電源' && wantBattery ? (d.batteryType || '（未填類型）') : null,
     spare: down,
-    iron: cfg.ironCase === false,
-    lock: cfg.locked === false,
-    rain: cfg.rainCover === false,
+    guards: missingGuards(d),
   };
 }
 
-/** 勾選的相機合起來要帶的東西（labels 依傳入順序） */
-export function packSummary(devices) {
+/** 記憶卡張數：每台一張、備一半、備 1/3（無條件進位） */
+export const sdCount = (n, mode) => (mode === 'half' ? Math.ceil(n / 2) : mode === 'third' ? Math.ceil(n / 3) : n);
+
+/**
+ * 勾選的相機合起來要帶的東西（labels 依傳入順序）：
+ *  battery＝[{type, labels}]、batteryTotal＝共幾組；sd＝張數；spare＝[{label, model}]；
+ *  guard.kits＝要整套的相機（全部上防護）；guard.items＝各樣要帶到哪幾台；guard.total＝套數或件數
+ */
+export function packSummary(devices, opts = PACK_DEFAULTS) {
   const battery = new Map();
-  const out = { count: devices.length, battery: [], sd: devices.length, spare: [], iron: [], lock: [], rain: [] };
+  const kits = [];
+  const items = Object.fromEntries(GUARD_ITEMS.map(([key]) => [key, []]));
+  const spare = [];
   devices.forEach(d => {
-    const need = packNeeds(d);
+    const need = packNeeds(d, opts);
     const label = stationLabel(d);
     if (need.battery) battery.set(need.battery, [...(battery.get(need.battery) || []), label]);
-    if (need.spare) out.spare.push({ label, model: d.cameraModel || '' });
-    if (need.iron) out.iron.push(label);
-    if (need.lock) out.lock.push(label);
-    if (need.rain) out.rain.push(label);
+    if (need.spare) spare.push({ label, model: d.cameraModel || '' });
+    if (!need.guards.length) return;
+    kits.push(label);
+    // 全部上防護：三樣都帶；補缺漏：只帶缺的
+    (opts.guard === 'gaps' ? need.guards : GUARD_ITEMS.map(([key]) => key)).forEach(key => items[key].push(label));
   });
-  out.battery = [...battery].map(([type, labels]) => ({ type, labels }));
-  return out;
+  const batteryList = [...battery].map(([type, labels]) => ({ type, labels }));
+  return {
+    count: devices.length,
+    battery: batteryList,
+    batteryTotal: batteryList.reduce((n, b) => n + b.labels.length, 0),
+    sd: sdCount(devices.length, opts.sd),
+    spare,
+    guard: {
+      mode: opts.guard === 'gaps' ? 'gaps' : 'full',
+      kits,
+      items,
+      total: opts.guard === 'gaps' ? Object.values(items).reduce((n, l) => n + l.length, 0) : kits.length,
+    },
+  };
 }
 
 /* ═══════════ 資料檢查 ═══════════ */

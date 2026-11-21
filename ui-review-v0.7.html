@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CATPatrol v0.7 文字與出發準備確認</title>
+<style>
+  :root{
+    --green:#2d6a4f; --green-dark:#1b4332; --green-light:#d8f3dc;
+    --amber:#e07a00; --red:#c0392b; --blue:#1d6fa5;
+    --bg:#f4f6f4; --card:#fff; --line:#e0e5e0; --text:#1f2d25; --muted:#6b7a70;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:"Segoe UI","Microsoft JhengHei",system-ui,sans-serif; background:var(--bg); color:var(--text);
+    padding:20px 16px 40px; line-height:1.6;}
+  main{max-width:960px; margin:0 auto;}
+  h1{font-size:21px; color:var(--green-dark); margin-bottom:4px;}
+  .sub{color:var(--muted); font-size:13.5px; margin-bottom:18px;}
+  h2{font-size:17px; color:var(--green-dark); margin:26px 0 8px; padding-bottom:4px; border-bottom:2px solid var(--green-light);}
+  h3{font-size:14.5px; color:var(--green-dark); margin:16px 0 6px;}
+  p, li{font-size:14px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:10px 0;}
+  table{width:100%; border-collapse:collapse; font-size:13.5px; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  th{background:#eef3ef; color:var(--green-dark); text-align:left; padding:7px 8px; font-weight:600; font-size:12.5px;}
+  td{padding:7px 8px; border-top:1px solid var(--line); vertical-align:top;}
+  td.n{color:var(--muted); width:46px; font-weight:700;}
+  td.where{color:var(--muted); width:22%;}
+  .old{color:#8a5b5b;}
+  .new{color:var(--green-dark); font-weight:600;}
+  .why{display:block; color:var(--muted); font-weight:400; font-size:12px; margin-top:2px;}
+  .q{background:#fff3d6; border:1px solid #f0c36d; border-radius:10px; padding:10px 12px; margin:10px 0; font-size:13.5px;}
+  code{background:#eef3ef; border-radius:4px; padding:0 4px; font-size:12.5px;}
+  /* 手機版出發準備示意 */
+  .phone{max-width:380px; margin:10px auto; background:var(--bg); border:6px solid #222; border-radius:24px; overflow:hidden;}
+  .bar{background:var(--green-dark); color:#fff; padding:10px 14px; font-size:15px;}
+  .scr{padding:12px;}
+  .pg{font-size:17px; color:var(--green-dark); margin:0 2px 10px; font-weight:700;}
+  .optrow{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .optrow > span{width:64px; font-size:13px; color:var(--muted); flex-shrink:0;}
+  .seg{display:flex; flex:1; background:#e4ebe6; border-radius:10px; padding:3px; gap:3px;}
+  .seg b{flex:1; text-align:center; font-weight:500; font-size:12.5px; color:var(--muted); padding:6px 2px; border-radius:8px;}
+  .seg b.on{background:#fff; color:var(--green-dark); font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,.12);}
+  .take{background:#f0f7f2; border:1px solid #bcd9c6; border-radius:12px; padding:10px 12px; margin:10px 0;}
+  .take h4{font-size:14px; color:var(--green-dark); margin-bottom:4px;}
+  .li{display:flex; gap:6px; padding:5px 0; border-bottom:1px dashed var(--line); font-size:13.5px; align-items:baseline;}
+  .li:last-of-type{border-bottom:none;}
+  .li .k{font-weight:800; color:var(--green-dark); min-width:84px;}
+  .li small{margin-left:auto; color:var(--muted); font-size:11.5px; text-align:right;}
+  .li.sub{padding-left:22px; font-size:12.5px;}
+  .li.sub .k{font-weight:600; min-width:62px;}
+  .copy{display:block; text-align:center; background:#e4ebe6; border-radius:10px; padding:8px; margin-top:8px; font-size:13px; color:var(--green-dark); font-weight:600;}
+  .picks{background:#fff; border:1px solid var(--line); border-radius:12px; padding:2px 12px;}
+  .pk{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;}
+  .pk:last-child{border-bottom:none;}
+  .bx{width:18px; height:18px; border:2px solid #b0c2b5; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; flex-shrink:0;}
+  .bx.on{background:var(--green); border-color:var(--green);}
+  .pk .w{flex:1;} .pk .w b{display:block;} .pk .w small{color:var(--muted); font-size:11px;}
+  .pk .ic{letter-spacing:1px;}
+  .two{display:flex; gap:8px; margin:8px 0;}
+  .two b{flex:1; text-align:center; background:#e4ebe6; border-radius:10px; padding:7px; font-size:13px; color:var(--green-dark); font-weight:600;}
+</style>
+</head>
+<body>
+<main>
+<h1>CATPatrol v0.7：確認單</h1>
+<p class="sub">每一項都有編號。照建議改的不用回；不要的或想換說法的，回「第幾項」加上你要的說法即可。確認後我才動手。</p>
+
+<h2>一、出發準備（新版）</h2>
+<div class="phone">
+  <div class="bar">🐾 CATPatrol 巡檢</div>
+  <div class="scr">
+    <div class="pg">‹ 🎒 出發準備</div>
+    <div class="optrow"><span>電池</span><div class="seg"><b class="on">全部換</b><b>50% 以下才換</b></div></div>
+    <div class="optrow"><span>記憶卡</span><div class="seg"><b class="on">每台一張</b><b>備一半</b><b>備 1/3</b></div></div>
+    <div class="optrow"><span>防護套件</span><div class="seg"><b class="on">全部上防護</b><b>補缺漏</b></div></div>
+
+    <div class="take">
+      <h4>這趟 6 台，要帶：</h4>
+      <div class="li"><span class="k">🔋 電池</span>共 6 台份</div>
+      <div class="li sub"><span class="k">鋰電</span>4 台份<small>S-01、S-03、S-07、S-09</small></div>
+      <div class="li sub"><span class="k">鹼性</span>2 台份<small>S-05、S-11</small></div>
+      <div class="li"><span class="k">💾 記憶卡</span>6 張</div>
+      <div class="li"><span class="k">📷 備用相機</span>1 台<small>S-07（HP5 Ultra）</small></div>
+      <div class="li"><span class="k">🛡 防護套件</span>2 套<small>S-04、S-11</small></div>
+      <div class="li sub"><span class="k"></span>每套：鐵殼＋鎖＋遮雨板</div>
+      <span class="copy">📋 複製清單</span>
+    </div>
+
+    <div class="two"><b>全選</b><b>清除</b></div>
+    <div class="picks">
+      <div class="pk"><span class="bx on">✓</span><div class="w"><b>S-01</b><small>上次 11/14 · 鋰電 75%</small></div><span class="ic">🔋💾</span></div>
+      <div class="pk"><span class="bx on">✓</span><div class="w"><b>S-04</b><small>上次 09/02 · 鹼性 50% · 缺鎖</small></div><span class="ic">🔋💾🛡</span></div>
+      <div class="pk"><span class="bx">　</span><div class="w"><b>S-02</b><small>上次 09/10 · 鋰電 75%</small></div><span class="ic">🔋💾</span></div>
+    </div>
+  </div>
+</div>
+
+<table>
+  <tr><th>#</th><th>項目</th><th>做法</th></tr>
+  <tr><td class="n">P1</td><td class="where">電池「全部換」</td><td>勾到的每台都帶一台份（外接電源的不算）。</td></tr>
+  <tr><td class="n">P2</td><td class="where">電池「50% 以下才換」</td><td>電量 50%（含）以下，或離開時未運作的，才帶。</td></tr>
+  <tr><td class="n">P3</td><td class="where">電池總數</td><td>第一行寫「共 N 台份」，下面再依類型分。</td></tr>
+  <tr><td class="n">P4</td><td class="where">記憶卡</td><td>「每台一張」＝勾幾台帶幾張；「備一半」「備 1/3」無條件進位（7 台備一半＝4 張、備 1/3＝3 張）。</td></tr>
+  <tr><td class="n">P5</td><td class="where">防護「全部上防護」</td><td>勾到的相機只要防護不齊（缺鐵殼、鎖、遮雨板任一樣，或還沒填過），就帶<b>一整套</b>：清單寫「防護套件 N 套」。</td></tr>
+  <tr><td class="n">P6</td><td class="where">防護「補缺漏」</td><td>只帶缺的那幾樣，分開算：「鐵殼 N 個、鎖 N 個、遮雨板 N 片」。還沒填過的當作三樣都缺。</td></tr>
+  <tr><td class="n">P7</td><td class="where">下方清單</td><td>只留「全選」「清除」，每台自己打勾；剛打開時全部不勾。每台右邊用圖示標出要帶什麼。</td></tr>
+  <tr><td class="n">P8</td><td class="where">記住選擇</td><td>上面三排的選擇會記住（每支手機各自記），下次打開還是上次選的。</td></tr>
+  <tr><td class="n">P9</td><td class="where">說明文字（頁面最下方）</td><td>改成：「電池與防護怎麼算，依上面的選擇。外接電源的相機不帶電池；還沒填過防護的，當作都缺。」</td></tr>
+</table>
+
+<h2>二、全 App 統一用詞</h2>
+<table>
+  <tr><th>#</th><th>現在</th><th>改成</th></tr>
+  <tr><td class="n">A1</td><td class="old">設備（分頁「設備」、設備清單、新增設備、設備設定、儲存設備、照片資料夾說明「專案／設備／日期」…）</td>
+    <td class="new">相機（分頁「相機」、相機清單、新增相機、相機設定、儲存相機、「專案／相機／日期」）
+      <span class="why">現場都說相機，你也說「相機設定」；一台設備就是一台相機。試算表分頁名稱「設備」不改（CATBase 也在讀）。</span></td></tr>
+  <tr><td class="n">A2</td><td class="old">序號、設備序號（卡片「序號 CA001 · Meidase P70」、地圖說明框「序號 CA001」、比對卡「樣點 / 序號」）</td>
+    <td class="new">相機編號（卡片「CA001 · Meidase P70」、說明框「CA001」、比對卡「樣點 / 相機」）
+      <span class="why">輸入時叫「相機編號」，顯示時卻叫「序號」，同一個東西兩種叫法。</span></td></tr>
+  <tr><td class="n">A3</td><td class="old">相機故障（徽章）、故障/沒電（地圖圖例）、相機故障或沒電（比對卡、履歷）</td>
+    <td class="new">未運作（徽章、圖例）；比對卡「⛔ 未運作」；履歷「⚠️ 離開時未運作」
+      <span class="why">這個狀態包含故障、沒電、被偷；「故障」只說到其中一種。</span></td></tr>
+  <tr><td class="n">A4</td><td class="old">圖例「逾2月未巡／逾3月／逾4月」</td>
+    <td class="new">「逾2個月／逾3個月／逾4個月」<span class="why">跟清單上的徽章「逾2個月未巡」說法一致。</span></td></tr>
+  <tr><td class="n">A5</td><td class="old">佇列（「上傳佇列」「完成巡檢（離線暫存 → 佇列）」）</td>
+    <td class="new">待上傳（「待上傳的資料」「儲存巡檢」）<span class="why">「佇列」是程式用語。</span></td></tr>
+  <tr><td class="n">A6</td><td class="old">感度</td>
+    <td class="new">靈敏度<span class="why">相機選單的常見說法。設定摘要（也寫進試算表「新設定摘要」欄）會從「感度中」變成「靈敏度中」，舊列不變。</span></td></tr>
+</table>
+
+<h2>三、各畫面</h2>
+
+<h3>相機清單（首頁）</h3>
+<table>
+  <tr><th>#</th><th>位置</th><th>現在 → 改成</th></tr>
+  <tr><td class="n">H1</td><td class="where">雲端舊版警告</td><td><span class="old">⚠️ 雲端的 Apps Script 還是舊版（v0.5，需要 v0.6），新功能（例如履歷、統計、中間有停）拿不到或存不進試算表。請到 Apps Script「管理部署作業」把現有的部署改成新版本。</span><br>→ <span class="new">⚠️ 雲端程式是舊版（v0.5，這版需要 v0.6），部分新功能存不進試算表。請到 Apps Script「管理部署作業」部署新版本。</span></td></tr>
+  <tr><td class="n">H2</td><td class="where">編號警告</td><td><span class="old">編號不是 CA／SD＋3 碼，請到試算表修改：…</span><br>→ <span class="new">這些編號格式不對，請到試算表修改：…</span></td></tr>
+  <tr><td class="n">H3</td><td class="where">沒有相機時</td><td><span class="old">此專案還沒有設備，點下方「＋ 新增設備」建立第一台。</span><br>→ <span class="new">此專案還沒有相機，點下方「＋ 新增相機」建立第一台。</span></td></tr>
+</table>
+
+<h3>新增相機</h3>
+<table>
+  <tr><th>#</th><th>位置</th><th>現在 → 改成</th></tr>
+  <tr><td class="n">N1</td><td class="where">區塊標題</td><td><span class="old">位置（首次設定）</span> → <span class="new">位置</span></td></tr>
+  <tr><td class="n">N2</td><td class="where">區塊標題</td><td><span class="old">耗材</span> → <span class="new">記憶卡與電池</span></td></tr>
+  <tr><td class="n">N3</td><td class="where">區塊標題與說明</td><td><span class="old">設備設定（首次設定）／之後巡檢時沿用，有變動才需修改。</span><br>→ <span class="new">相機設定／之後巡檢沿用，有改再修改。</span></td></tr>
+  <tr><td class="n">N4</td><td class="where">工作時段開關</td><td><span class="old">指定工作時段（關閉＝全天）</span> → <span class="new">只在特定時段拍（關閉＝整天拍）</span></td></tr>
+  <tr><td class="n">N5</td><td class="where">存檔按鈕</td><td><span class="old">儲存設備（離線暫存）</span> → <span class="new">儲存相機</span>，按鈕下加一行小字：<span class="new">先存在手機，有網路時自動上傳。</span></td></tr>
+  <tr><td class="n">N6</td><td class="where">錯誤訊息</td><td><span class="old">請選固定方式</span> → <span class="new">請選擇固定方式</span></td></tr>
+</table>
+
+<h3>巡檢</h3>
+<table>
+  <tr><th>#</th><th>位置</th><th>現在 → 改成</th></tr>
+  <tr><td class="n">T1</td><td class="where">開關</td><td><span class="old">中間有停（沒電或記憶卡滿）</span> → <span class="new">上次巡檢後有停過（沒電或記憶卡滿）</span></td></tr>
+  <tr><td class="n">T2</td><td class="where">換卡說明</td><td><span class="old">取回卡：SD012（自動記錄）</span> → <span class="new">收回的卡：SD012（自動記錄）</span></td></tr>
+  <tr><td class="n">T3</td><td class="where">電量</td><td><span class="old">目前電量 %</span> → <span class="new">離開時電量 %</span><span class="why">換了電池就是新電池的電量，「離開時」比較不會填錯。</span></td></tr>
+  <tr><td class="n">T4</td><td class="where">開關</td><td><span class="old">設定有變動</span> → <span class="new">相機設定有改</span></td></tr>
+  <tr><td class="n">T5</td><td class="where">開關</td><td><span class="old">位置有變動（重新定位）</span> → <span class="new">相機位置有移動</span></td></tr>
+  <tr><td class="n">T6</td><td class="where">開關</td><td><span class="old">相機故障或沒電（現場無相機）</span> → <span class="new">離開時相機未運作（故障、沒電或不見了）</span><br>下面加一行小字：<span class="new">打開的話，統計會算漏拍到下次巡檢。</span></td></tr>
+  <tr><td class="n">T7</td><td class="where">存檔按鈕</td><td><span class="old">完成巡檢（離線暫存 → 佇列）</span> → <span class="new">儲存巡檢</span>，按鈕下加一行小字：<span class="new">先存在手機，有網路時自動上傳。</span></td></tr>
+  <tr><td class="n">T8</td><td class="where">沒有相機時</td><td><span class="old">此專案還沒有設備，請先到「新增」分頁建立。</span> → <span class="new">此專案還沒有相機，請先到「新增」分頁建立。</span></td></tr>
+</table>
+
+<h3>同步與設定</h3>
+<table>
+  <tr><th>#</th><th>位置</th><th>現在 → 改成</th></tr>
+  <tr><td class="n">S1</td><td class="where">區塊標題</td><td><span class="old">上傳佇列</span> → <span class="new">待上傳的資料</span></td></tr>
+  <tr><td class="n">S2</td><td class="where">按鈕</td><td><span class="old">立即全部上傳</span> → <span class="new">現在上傳</span></td></tr>
+  <tr><td class="n">S3</td><td class="where">還沒登入時</td><td><span class="old">尚未取得登入身分（連上網路開啟一次即可；一直這樣代表雲端 Apps Script 還是舊版）</span><br>→ <span class="new">還沒取得登入帳號（連上網路打開一次就會有）</span></td></tr>
+  <tr><td class="n">S4</td><td class="where">上傳失敗訊息</td><td><span class="old">伺服器回應 HTTP 500，內容不是 JSON</span> → <span class="new">雲端沒有正常回應（HTTP 500）</span></td></tr>
+</table>
+
+<h3>設定摘要（比對卡；也寫進試算表「新設定摘要」欄）</h3>
+<table>
+  <tr><th>#</th><th>現在</th><th>改成</th></tr>
+  <tr><td class="n">C1</td><td class="old">照片 · 照片32MP · 連拍3 · 感度中 · 間隔0s · 工作時間全天 · 鐵殼✓ 上鎖✗ 遮雨板✓ · 固定角鋼</td>
+    <td class="new">照片 · 照片32MP · 連拍3 · 靈敏度中 · 間隔0秒 · 工作時間全天 · 鐵殼✓ 上鎖✗ 遮雨板✓ · 角鋼固定
+      <span class="why">「0s」改中文單位；「固定角鋼」讀起來像動作，改「角鋼固定」。只影響之後的新紀錄。</span></td></tr>
+</table>
+
+<p class="sub" style="margin-top:12px;">其他文字（履歷、統計、地圖選位置、對話框、驗證訊息等）我看過，覺得已經清楚，不動。</p>
+
+<h2>四、相機型號</h2>
+<div class="card">
+  <p><b>Browning Spec Ops Elite HP5（BTC-8E-HP5）</b>：目前只有零售頁與 manuals.plus 摘要的資料，寫 24MP 照片、1920×1080 影片、8 顆 AA 電池。
+    選單裡實際有哪些畫質檔位、影片秒數範圍，摘要沒寫，要看官方說明書才確定。</p>
+  <p style="margin-top:8px;"><b>Ereagle E1S</b>：官方說明書在 Ereagle 官網（文件代號 ED-E1S-TM-01，標題寫 12M、1080P/30FPS），還沒讀到內容。</p>
+  <div class="q">兩份官方說明書都是 PDF 附件，<b>要下載才讀得到</b>（自動抓取被擋，manualslib 要過機器人驗證，我不能代為通過）。<br>
+    我要下載的是：<br>
+    ① Ereagle E1S：<code>http://www.ereagle.com/ProductsImage/Pic-B-20171102005119304.pdf</code>（Ereagle 官網，大小未知）<br>
+    ② Browning BTC-8E-HP5：Browning 官方支援站附件「BTC-8E-HP5 - Instruction Manual.pdf」（約 20 MB）<br>
+    只存在暫存資料夾，讀完取出規格，不會放進專案。</div>
+</div>
+</main>
+</body>
+</html>

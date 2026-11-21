@@ -63,7 +63,9 @@
 
       <label class="f">相機編號 <span class="req">*</span></label>
       <div class="prefixed"><span class="pfx">CA</span>
-        <input type="text" id="add-device-id" data-code="CA" inputmode="numeric" maxlength="3" placeholder="只填數字，例：12 → CA012"></div>
+        <input type="text" id="add-device-id" data-code="CA" inputmode="numeric" maxlength="4" placeholder="只填數字，例：12 → CA012">
+        <button type="button" class="sfx" data-tgl title="另一批相機（編號後面加 N）">N</button></div>
+      <p class="sec-note" style="margin:4px 0 0;">另一批相機（編號後面有 N）請點亮右邊的 N。</p>
 
       <label class="f">相機型號 <span class="req">*</span></label>
       <select id="add-model"></select>
@@ -219,7 +221,8 @@
         <div id="swap-new" class="reveal" hidden>
           <label class="f" style="margin-top:0;">新相機編號 <span class="req">*</span></label>
           <div class="prefixed"><span class="pfx">CA</span>
-            <input type="text" id="pt-new-id" data-code="CA" inputmode="numeric" maxlength="3" placeholder="只填數字，例：45 → CA045"></div>
+            <input type="text" id="pt-new-id" data-code="CA" inputmode="numeric" maxlength="4" placeholder="只填數字，例：45 → CA045">
+            <button type="button" class="sfx" data-tgl title="另一批相機（編號後面加 N）">N</button></div>
           <label class="f">新相機型號 <span class="req">*</span></label>
           <select id="pt-new-model"></select>
           <label class="f">更換原因 <span class="req">*</span></label>

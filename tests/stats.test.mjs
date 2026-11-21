@@ -148,6 +148,7 @@ const issues = S.dataIssues([
   dev({ id: 'ABC', stationId: 'S-05', sdCard: 'X-9' }),
   dev({ id: 'CA006', stationId: '', sdCard: '' }),                       // 空白不算重複
   dev({ id: 'CA007', stationId: '', sdCard: '' }),
+  dev({ id: 'CA024N', stationId: 'S-24', sdCard: 'SD024' }),             // N＝另一批，格式正確
 ]);
 check('duplicate stations (case/space-insensitive), retired ignored, blanks ignored',
   issues.stations.length === 1 && J(issues.stations[0].devices.map(d => d.id)) === J(['CA001', 'CA002']), J(issues.stations));

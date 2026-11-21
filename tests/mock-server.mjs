@@ -52,6 +52,10 @@ const state = {
     // 資料檢查用：樣點和 CA002 重複、記憶卡和 CA002 同一張（SD011）；另一台編號格式看不懂
     dev('CA006', 's-02', 5, 20, { sdCard: 'SD011', config: { ...cfg, ironCase: true, locked: true, rainCover: true, mount: '綁帶' } }),
     dev('ABC', 'S-07', 6, 15, { sdCard: 'X-9' }),
+    // N＝另一批相機（格式正確）；12 和 CA012 在設備分頁各一列（撞號，雲端沒改）
+    dev('CA024N', 'S-24', 7, 12, { sdCard: 'SD024' }),
+    dev('12', 'S-12', 8, 12, { sdCard: 'SD040' }),
+    dev('CA012', 'S-13', 9, 12, { sdCard: 'SD041' }),
   ],
   records: [
     rec(150, 'CA001', '林小華', { sdChanged: true, sdNew: 'SD011', sdRetrieved: 'SD010' }),
@@ -73,7 +77,7 @@ const state = {
 const writes = [];
 const photoHits = [];
 let expired = false;
-let backendVersion = 'v0.5'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
+let backendVersion = 'v0.6'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
 
 const send = (res, status, body, headers = {}) => {
   res.writeHead(status, { 'Cache-Control': 'no-store', ...headers });

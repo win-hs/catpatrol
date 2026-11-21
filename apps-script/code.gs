@@ -7,7 +7,7 @@
  */
 
 const TOKEN_PROP = 'API_TOKEN';          // 指令碼屬性名稱；值要和 Cloudflare Worker 的 API_TOKEN 一樣
-const VERSION = 'v0.5';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
+const VERSION = 'v0.6';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
@@ -43,9 +43,15 @@ const D = {
 
 /* ════════ 編號格式（v0.5）：相機 CA＋3 碼、記憶卡 SD＋3 碼，前端 form.js 的 camId / sdId 規則相同 ════════ */
 
-/** 132、ca-78、CA1 → CA132、CA078、CA001；只認 1–999，看不懂的原樣回傳 */
+/** 改編號規則有變時加 1：換版後會依新規則再整理一次（v0.6＝2：相機編號可帶 N、撞號只看設備分頁） */
+const IDS_FIX_VERSION = '2';
+
+/**
+ * 132、ca-78、CA1 → CA132、CA078、CA001；只認 1–999，看不懂的原樣回傳。
+ * 尾巴的 N 是另一批相機，保留：10N、CA24N → CA010N、CA024N
+ */
 function camId_(v) {
-  return code_(v, /^(?:ca)?[\s\-_]*(\d+)$/i, 'CA');
+  return code_(v, /^(?:ca)?[\s\-_]*(\d+)\s*(n?)$/i, 'CA');
 }
 
 /** 野12、Wv12、sd 12、12 → SD012（野／Wv 意思一樣） */
@@ -56,7 +62,7 @@ function sdId_(v) {
 function code_(v, re, prefix) {
   const m = String(v == null ? '' : v).trim().match(re);
   const n = m ? Number(m[1]) : 0;
-  return n >= 1 && n <= 999 ? prefix + ('00' + n).slice(-3) : v;
+  return n >= 1 && n <= 999 ? prefix + ('00' + n).slice(-3) + (m[2] ? m[2].toUpperCase() : '') : v;
 }
 
 /* ════════ 進入點 ════════ */
@@ -515,7 +521,7 @@ function getSS_() {
   const first = ss.getSheets()[0];
   if (!HEADERS[first.getName()]) ss.deleteSheet(first);
   props.setProperty('SHEETS_VERSION', VERSION);
-  props.setProperty('IDS_FIXED', now_()); // 新試算表沒有舊編號要改
+  props.setProperty('IDS_FIX_VERSION', IDS_FIX_VERSION); // 新試算表沒有舊編號要改
   return ss;
 }
 
@@ -524,12 +530,12 @@ function upgradeSheets_(ss, props) {
   if (props.getProperty('SHEETS_VERSION') === VERSION) return;
   initSheets_(ss);
   props.setProperty('SHEETS_VERSION', VERSION);
-  if (!props.getProperty('IDS_FIXED')) fixIds_(ss, props);
+  if (props.getProperty('IDS_FIX_VERSION') !== IDS_FIX_VERSION) fixIds_(ss, props);
 }
 
 /**
- * 於編輯器手動執行：把相機編號統一成 CA＋3 碼、記憶卡統一成 SD＋3 碼。
- * v0.5 換版後第一次被呼叫時已自動跑過一次；之後在試算表手動貼了舊寫法、想再整理時才需要。
+ * 於編輯器手動執行：把相機編號統一成 CA＋3 碼（可帶 N）、記憶卡統一成 SD＋3 碼。
+ * 改編號規則變了的那一版，換版後第一次被呼叫時會自動跑；之後在試算表手動貼了舊寫法、想再整理時才需要。
  */
 function fixIds() {
   const ss = getSS_();
@@ -539,29 +545,35 @@ function fixIds() {
 /**
  * 改編號：設備（序號、QR碼內容、記憶卡）、巡檢紀錄（序號、新設備編號、新卡、取回卡）、照片索引（序號），
  * 以及照片資料夾名稱。改之前先複製一份試算表備份。
- * 兩個不同的舊編號會變成同一個新編號時（例如 12 和 CA012 同時存在）不改，留給人工處理；看不懂的編號原樣保留。
+ * 同一台在不同地方寫法不同（設備寫 96、巡檢紀錄寫 CA96）會合併成同一個；
+ * 只有設備分頁裡兩列會變成同一個新編號時（例如 12 和 CA012 各一列）不改，留給人工處理。看不懂的編號原樣保留。
  */
 function fixIds_(ss, props) {
-  props.setProperty('IDS_FIXED', now_()); // 先記下：同時進來的請求不會重複跑
+  props.setProperty('IDS_FIX_VERSION', IDS_FIX_VERSION); // 先記下：同時進來的請求不會重複跑
   const backup = DriveApp.getFileById(ss.getId()).makeCopy(SS_NAME + '_備份_改編號前_' + now_().slice(0, 10));
 
-  // 所有出現過的相機編號 → 新編號；撞號的不改
+  // 所有出現過的相機編號依新編號分組；devices＝設備分頁裡有列的那幾種寫法
   const groups = {};
-  const seen = id => {
+  const seen = (id, isDevice) => {
     const key = String(id).trim();
     if (!key) return;
     const to = String(camId_(key));
-    (groups[to] = groups[to] || {})[key] = true;
+    const g = groups[to] = groups[to] || { all: {}, devices: {} };
+    g.all[key] = true;
+    if (isDevice) g.devices[key] = true;
   };
-  rows_(ss, '設備').forEach(r => seen(r[D.id]));
+  rows_(ss, '設備').forEach(r => seen(r[D.id], true));
   rows_(ss, '巡檢紀錄').forEach(r => { seen(r[3]); seen(r[23]); });
   rows_(ss, '照片索引').forEach(r => seen(r[2]));
   const rename = {};
   const clashes = [];
   Object.keys(groups).forEach(to => {
-    const from = Object.keys(groups[to]);
-    if (from.length > 1) clashes.push(from.join(' / ') + ' → ' + to);
-    else if (from[0] !== to) rename[from[0]] = to;
+    const g = groups[to];
+    if (Object.keys(g.devices).length > 1) {
+      clashes.push(Object.keys(g.devices).join(' / ') + ' → ' + to);
+      return;
+    }
+    Object.keys(g.all).forEach(from => { if (from !== to) rename[from] = to; });
   });
   const cam = v => (rename.hasOwnProperty(String(v).trim()) ? rename[String(v).trim()] : v);
 

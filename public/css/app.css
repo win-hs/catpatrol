@@ -306,7 +306,15 @@ table.t tr.sum td{font-weight:800; border-top:2px solid var(--line);}
   border-radius:10px 0 0 10px; background:#eef3ef; font-weight:700; color:var(--green-dark); font-size:15px;
 }
 .prefixed input{flex:1; width:auto; min-width:0; border-radius:0 10px 10px 0;}
-.prefixed .field-err{flex-basis:100%;}
+.prefixed input:not(:last-child){border-radius:0;}
+/* N 鈕：另一批相機，點亮＝編號後面加 N */
+.prefixed .sfx{
+  border:1px solid var(--line); border-left:none; border-radius:0 10px 10px 0; background:#fbfcfb;
+  padding:0 16px; font-size:15px; font-weight:700; color:var(--muted); cursor:pointer; font-family:inherit;
+}
+.prefixed .sfx.on{background:var(--green); border-color:var(--green); color:#fff;}
+.prefixed.invalid{background:none;}
+.prefixed.invalid input{border-color:var(--red); background:#fff6f5;}
 .loc-btns{margin-top:10px;}
 .loc-btns .btn{margin-top:0; padding:10px 6px;}
 

@@ -169,7 +169,7 @@ check('new spreadsheet: default 工作表1 removed', !ss.getSheetByName('工作�
 check('設備 header 31 cols ending 夜間影片秒數/鐵殼/上鎖/遮雨板/固定方式',
   sheet('設備')[0].length === 31 && sheet('設備')[0][25] === '樣點編號'
   && sheet('設備')[0].slice(26).join('|') === '夜間影片秒數|鐵殼|上鎖|遮雨板|固定方式');
-check('new spreadsheet: nothing to fix, no backup made', copies.length === 1 && !!props.IDS_FIXED);
+check('new spreadsheet: nothing to fix, no backup made', copies.length === 1 && props.IDS_FIX_VERSION === '2');
 check('巡檢紀錄 header 30 cols ending 中間有停/停止時間/停止原因',
   sheet('巡檢紀錄')[0].length === 30 && sheet('巡檢紀錄')[0][26] === '樣點編號' && sheet('巡檢紀錄')[0].slice(27).join('|') === '中間有停|停止時間|停止原因');
 check('白名單 sheet created', sheet('白名單')[0].join('|') === 'email|姓名|加入日期|備註');
@@ -360,14 +360,18 @@ const oldRow31 = (id, sd, station) => {
     17: true, 19: '正常', 20: 'Meidase P70', 25: station });
   return r;
 };
-ss = makeSS(); props.SS_ID = 'SS1'; props.SHEETS_VERSION = 'v0.4'; delete props.IDS_FIXED;
+// 使用者實際的狀況：v0.5 已用舊規則跑過一次（IDS_FIXED 有值），換 v0.6 要依新規則再整理
+ss = makeSS(); props.SS_ID = 'SS1'; props.SHEETS_VERSION = 'v0.5'; props.IDS_FIXED = '2026-11-21 11:30'; delete props.IDS_FIX_VERSION;
 Object.keys(HEADERS).forEach(n => ss.insertSheet(n).appendRow(HEADERS[n]));
-[[132, '野8', 'S-01'], ['Ca-78', 'Wv12', 'S-02'], ['12', 'sd 3', 'S-03'], ['CA012', '野08', 'S-04'], ['ABC', 'X-9', 'S-05']]
+[[132, '野8', 'S-01'], ['Ca-78', 'Wv12', 'S-02'], ['12', 'sd 3', 'S-03'], ['CA012', '野08', 'S-04'], ['ABC', 'X-9', 'S-05'],
+  [96, 'SD020', 'S-06'], ['10N', 'SD021', 'S-07'], ['CA24N', 'SD022', 'S-08'], ['CA24', 'SD023', 'S-09']]
   .forEach(([id, sd, st]) => ss.getSheetByName('設備').appendRow(oldRow31(id, sd, st)));
 const oldRec = Array(30).fill('');
 Object.assign(oldRec, { 0: 'REC-O', 1: '2026-10-05 10:00', 2: 'P1', 3: 132, 4: '王小明', 5: false, 6: true, 7: '野8', 8: 'Wv12',
   22: true, 23: 'Ca-78' });
 ss.getSheetByName('巡檢紀錄').appendRow(oldRec);
+// 同一台在巡檢紀錄寫成 CA96（設備分頁是 96）
+ss.getSheetByName('巡檢紀錄').appendRow(Object.assign(Array(30).fill(''), { 0: 'REC-96', 1: '2026-10-06 10:00', 2: 'P1', 3: 'CA96', 4: '王小明', 5: true }));
 ss.getSheetByName('照片索引').appendRow(['PH1', 'REC-O', 132, '2026-10-05 10:00', 'https://drive.google.com/file/d/X/view', 'a.jpg']);
 const proj = root.createFolder('玉山舊');
 proj.createFolder('132');
@@ -379,16 +383,22 @@ check('fixIds: camera ids → CA + 3 digits (number cell 132 too), QR follows',
   !!dev('CA132') && !!dev('CA078') && dev('CA132')[2] === 'CA132' && dev('CA078')[2] === 'CA078', JSON.stringify(sheet('設備').map(r => r[0])));
 check('fixIds: SD 野8 / Wv12 / sd 3 / 野08 → SD008 / SD012 / SD003 / SD008',
   dev('CA132')[5] === 'SD008' && dev('CA078')[5] === 'SD012' && dev('12')[5] === 'SD003' && dev('CA012')[5] === 'SD008', JSON.stringify(sheet('設備').map(r => r[5])));
-check('fixIds: 12 and CA012 would collide → both left alone; unreadable ABC / X-9 left alone',
+check('fixIds: 12 and CA012 are two rows in 設備 → both left alone; unreadable ABC / X-9 left alone',
   !!dev('12') && !!dev('CA012') && !!dev('ABC') && dev('ABC')[5] === 'X-9');
+check('fixIds: same camera written 96 in 設備 and CA96 in records → merged into CA096',
+  !!dev('CA096') && !dev(96) && sheet('巡檢紀錄').find(r => r[0] === 'REC-96')[3] === 'CA096', JSON.stringify(sheet('設備').map(r => r[0])));
+check('fixIds: N batch kept and padded (10N → CA010N, CA24N → CA024N), CA24 is a different camera (CA024)',
+  !!dev('CA010N') && !!dev('CA024N') && !!dev('CA024') && dev('CA024N')[5] === 'SD022' && dev('CA024')[5] === 'SD023',
+  JSON.stringify(sheet('設備').map(r => r[0])));
+check('fixIds: v0.5 already ran (old flag) → v0.6 reruns once with the new rules', props.IDS_FIX_VERSION === '2');
 const fr = sheet('巡檢紀錄').find(r => r[0] === 'REC-O');
 check('fixIds: records (device, new device, new/retrieved card) and photo index follow',
   fr[3] === 'CA132' && fr[23] === 'CA078' && fr[7] === 'SD008' && fr[8] === 'SD012' && sheet('照片索引')[1][2] === 'CA132', JSON.stringify(fr));
 check('fixIds: photo folder renamed, colliding one left alone',
   proj.getFoldersByName('CA132').hasNext() && !proj.getFoldersByName('132').hasNext() && proj.getFoldersByName('12').hasNext());
-check('fixIds: backup taken before changing, report saved with the clash',
+check('fixIds: backup taken before changing, report lists only the real clash (12 / CA012), not 96',
   copies.length === copiesBefore + 1 && copies.at(-1).rows.some(r => r[0] === 132) && props.IDS_FIX_REPORT.includes('撞號')
-  && props.IDS_FIX_REPORT.includes('CA012'), props.IDS_FIX_REPORT);
+  && props.IDS_FIX_REPORT.includes('12 / CA012') && !props.IDS_FIX_REPORT.includes('96'), props.IDS_FIX_REPORT);
 check('bootstrap after the fix returns the new ids', fixed.devices.some(d => d.id === 'CA132' && d.sdCard === 'SD008')
   && fixed.records[0].deviceId === 'CA132', JSON.stringify(fixed.devices.map(d => d.id)));
 boot();
@@ -398,7 +408,7 @@ check('manual fixIds() rerun changes nothing new', /設備 序號 0 格/.test(ag
 
 // 網頁 form.js 的 camId / sdId 要和 code.gs 一樣
 const formJs = await import(new URL('../public/js/form.js', import.meta.url));
-for (const v of ['1', '12', '132', 'ca-78', 'CA1', ' CA 007 ', '0', '1000', 'CAM-1', '', 132]) {
+for (const v of ['1', '12', '132', 'ca-78', 'CA1', ' CA 007 ', '0', '1000', 'CAM-1', '', 132, '10N', 'CA24N', 'ca 118 n', 'CA118N', '24NN', 'N']) {
   check(`camId same front/back: ${JSON.stringify(v)} → ${camId_(v)}`, formJs.camId(v) === camId_(v), formJs.camId(v));
 }
 for (const v of ['野12', 'Wv7', 'sd 3', 'SD012', '08', 'X-9', '', '野0']) {

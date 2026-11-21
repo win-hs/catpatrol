@@ -1,6 +1,6 @@
 // 相機履歷、出發準備、統計（漏拍、工作量）、資料檢查的計算。純函式：不碰畫面也不碰資料庫，可以直接在 Node 測試
 import { stationLabel, daysSince } from './store.js';
-import { sdId } from './form.js';
+import { sdId, isCamId, isSdId } from './form.js';
 
 const DAY = 86400000;
 const key = id => String(id);
@@ -250,14 +250,14 @@ function duplicates(devices, keyOf) {
 /**
  * 這個專案還在用的相機（不含已撤下）的資料問題：
  *  stations＝樣點編號重複、cards＝記憶卡重複（野12／Wv12／SD012 算同一張）、
- *  badIds／badCards＝編號不是 CA＋3 碼／SD＋3 碼（改編號時看不懂、留給人工改的）
+ *  badIds／badCards＝編號不是 CA＋3 碼（可帶 N）／SD＋3 碼（改編號時看不懂或撞號、留給人工改的）
  */
 export function dataIssues(devices) {
   const active = devices.filter(d => !d.retired);
   return {
     stations: duplicates(active, d => stationKey(d.stationId)),
     cards: duplicates(active, d => (d.sdCard ? String(sdId(d.sdCard)) : '')),
-    badIds: active.filter(d => !/^CA\d{3}$/.test(String(d.id))),
-    badCards: active.filter(d => d.sdCard && !/^SD\d{3}$/.test(String(d.sdCard))),
+    badIds: active.filter(d => !isCamId(d.id)),
+    badCards: active.filter(d => d.sdCard && !isSdId(d.sdCard)),
   };
 }

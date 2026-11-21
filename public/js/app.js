@@ -8,9 +8,9 @@ import * as stats from './stats.js';
 import { configForm, configSummary, missingFields, MODEL_OPTIONS, MOUNTS } from './cam-config.js';
 
 // 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v0.5';
+const APP_VERSION = 'v0.6';
 // 這版網頁需要的 Apps Script 版本（code.gs 的 VERSION）；雲端比這舊就在首頁提醒重新部署
-const BACKEND_NEEDED = 'v0.5';
+const BACKEND_NEEDED = 'v0.6';
 let backendVersion = '';
 
 const versionParts = v => String(v || '0').replace(/^v/, '').split('.').map(Number);
@@ -95,7 +95,7 @@ document.addEventListener('click', e => {
 document.addEventListener('focusout', e => {
   if (!e.target.dataset?.code) return;
   const full = form.codeValue(e.target);
-  if (full) e.target.value = full.slice(2);
+  if (full) form.setCode(e.target, full); // 電腦上直接打 24n 也行：變成 024 並點亮 N
 });
 
 // 以 form 的 submit 取代 dialog 的 close 事件：close 在部分 WebView 不觸發
@@ -234,7 +234,13 @@ function renderDataWarn(devices) {
   });
   // 雲端還沒改編號（舊版）時每台都會是舊寫法，不提醒
   if (backendVersion && !olderThan(backendVersion, 'v0.5')) {
-    const bad = [...issues.badIds.map(d => d.id), ...issues.badCards.map(d => `${store.stationLabel(d)} 的 ${d.sdCard}`)];
+    // 看得懂但沒改的＝和另一台撞號（設備分頁有兩列會變成同一個編號），寫出跟誰撞
+    const badId = d => {
+      const to = String(form.camId(d.id));
+      const twin = to !== String(d.id) && devices.find(x => x !== d && String(form.camId(x.id)) === to);
+      return twin ? `${d.id}（和 ${twin.id} 都會變成 ${to}，請確認是不是同一台）` : String(d.id);
+    };
+    const bad = [...issues.badIds.map(badId), ...issues.badCards.map(d => `${store.stationLabel(d)} 的 ${d.sdCard}`)];
     if (bad.length) lines.push(`編號不是 CA／SD＋3 碼，請到試算表修改：${bad.join('、')}`);
   }
   const el = $('data-warn');
@@ -716,7 +722,8 @@ $('add-save').addEventListener('click', async () => {
   }, photoIds);
 
   addPhotos.take();
-  ['add-station', 'add-device-id', 'add-sd', 'add-coord', 'add-config-note'].forEach(k => { $(k).value = ''; });
+  ['add-station', 'add-sd', 'add-coord', 'add-config-note'].forEach(k => { $(k).value = ''; });
+  form.setCode($('add-device-id'), '');
   $('add-battery-pct').value = '100';
   await updateSyncChip();
   go('scr-home');
@@ -919,7 +926,7 @@ async function loadPatrolDevice(deviceId) {
     .forEach(id => $(id).classList.remove('on'));
   ['swap-new', 'sd-new', 'stop-new', 'bat-new', 'cfg-new', 'loc-new'].forEach(id => { $(id).hidden = true; });
 
-  $('pt-new-id').value = '';
+  form.setCode($('pt-new-id'), '');
   $('pt-new-model').value = '';
   $('pt-swap-reason').value = '';
   $('pt-sd-new').value = '';
@@ -971,11 +978,11 @@ function fillFromRecord(p, device) {
   };
   set('pt-down', p.running === false);
   set('pt-swap', p.cameraSwapped, 'swap-new');
-  $('pt-new-id').value = form.codeDigits(p.newDeviceId);
+  form.setCode($('pt-new-id'), p.newDeviceId);
   $('pt-new-model').value = p.newCameraModel || '';
   $('pt-swap-reason').value = p.swapReason || '';
   set('pt-sd-changed', p.sdChanged, 'sd-new');
-  if (p.sdChanged) $('pt-sd-new').value = form.codeDigits(p.sdNew);
+  if (p.sdChanged) form.setCode($('pt-sd-new'), p.sdNew);
   set('pt-stopped', p.stoppedMidway, 'stop-new');
   if (p.stoppedMidway) {
     const [day, time = ''] = String(p.stoppedAt || '').split(' ');

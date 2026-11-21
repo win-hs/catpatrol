@@ -3,29 +3,39 @@ export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
-/* ---------- 編號：相機 CA＋3 碼、記憶卡 SD＋3 碼（code.gs 的 camId_ / sdId_ 規則相同） ---------- */
+/* ---------- 編號：相機 CA＋3 碼（另一批尾巴加 N）、記憶卡 SD＋3 碼（code.gs 的 camId_ / sdId_ 規則相同） ---------- */
 
 const code = (re, prefix) => v => {
   const m = String(v ?? '').trim().match(re);
   const n = m ? Number(m[1]) : 0;
-  return n >= 1 && n <= 999 ? prefix + String(n).padStart(3, '0') : v;
+  return n >= 1 && n <= 999 ? prefix + String(n).padStart(3, '0') + (m[2] ? m[2].toUpperCase() : '') : v;
 };
-/** 1、132、ca-78 → CA001、CA132、CA078；只認 1–999，看不懂的原樣回傳 */
-export const camId = code(/^(?:ca)?[\s\-_]*(\d+)$/i, 'CA');
+/** 1、132、ca-78、10N → CA001、CA132、CA078、CA010N；只認 1–999，看不懂的原樣回傳 */
+export const camId = code(/^(?:ca)?[\s\-_]*(\d+)\s*(n?)$/i, 'CA');
 /** 野12、Wv12、12 → SD012（野／Wv 意思一樣） */
 export const sdId = code(/^(?:sd|野|wv)?[\s\-_]*(\d+)$/i, 'SD');
-export const isCamId = v => /^CA\d{3}$/.test(String(v));
+export const isCamId = v => /^CA\d{3}N?$/.test(String(v));
 export const isSdId = v => /^SD\d{3}$/.test(String(v));
+
+/** 相機編號欄旁的「N」鈕（另一批相機；手機數字鍵盤打不出 N） */
+const nButton = el => el.parentElement?.querySelector('.sfx');
 
 /** 只填數字的編號欄（前面固定顯示 CA／SD）：存檔用的完整編號，填錯回 null */
 export function codeValue(el) {
-  const prefix = el.dataset.code;
-  const full = (prefix === 'SD' ? sdId : camId)(el.value);
-  return (prefix === 'SD' ? isSdId : isCamId)(full) && /^\d+$/.test(el.value.trim()) ? full : null;
+  const sd = el.dataset.code === 'SD';
+  const typed = el.value.trim();
+  if (!(sd ? /^\d+$/ : /^\d+n?$/i).test(typed)) return null;
+  const n = !sd && nButton(el)?.classList.contains('on') && !/n$/i.test(typed) ? 'N' : '';
+  const full = (sd ? sdId : camId)(typed + n);
+  return (sd ? isSdId : isCamId)(full) ? full : null;
 }
 
-/** 已存的編號填回只填數字的欄位（CA012 → 012） */
-export const codeDigits = v => String(v ?? '').replace(/^\D+/, '');
+/** 完整編號填回欄位：數字放輸入格、有 N 就點亮旁邊的鈕；傳 '' 清空 */
+export function setCode(el, full) {
+  const m = String(full ?? '').match(/^\D*?(\d+)(N?)$/i);
+  el.value = m ? m[1] : '';
+  nButton(el)?.classList.toggle('on', !!m?.[2]);
+}
 
 export function requireCode(el, label) {
   if (codeValue(el)) return true;
@@ -41,11 +51,13 @@ export function clearErrors(scope) {
 }
 
 export function markError(el, msg) {
-  el.classList.add('invalid');
+  // 編號欄（CA／SD 前綴、N 鈕）整組一起標，錯誤訊息放在整組下面
+  const target = el.closest?.('.prefixed') || el;
+  target.classList.add('invalid');
   const note = document.createElement('p');
   note.className = 'field-err';
   note.textContent = msg;
-  el.insertAdjacentElement('afterend', note);
+  target.insertAdjacentElement('afterend', note);
 }
 
 export function require(el, msg) {

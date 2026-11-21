@@ -148,3 +148,123 @@ export function initMap(cb) {
     if (btn) btn.onclick = () => callbacks.onPatrol(btn.dataset.patrol);
   });
 }
+
+/* ═══════════ 在地圖上選位置 ═══════════ */
+
+// 內政部國土測繪中心正射影像（開放資料，允許跨網域，Service Worker 也快取得到）
+const NLSC_PHOTO = 'https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}';
+const PICK_BASE_KEY = 'catpatrol.pickBase';
+let pick = null; // { map, bases, base, baseBtn, refs, resolve, moved }
+
+const $id = id => document.getElementById(id);
+
+function storedBase() {
+  try { return localStorage.getItem(PICK_BASE_KEY); } catch { return null; }
+}
+
+function mapButton(icon, title, onClick) {
+  const Ctl = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd() {
+      const btn = L.DomUtil.create('button', 'locate-btn');
+      btn.type = 'button';
+      btn.innerHTML = icon;
+      btn.title = title;
+      L.DomEvent.on(btn, 'click', e => { L.DomEvent.stop(e); onClick(btn); });
+      return btn;
+    },
+  });
+  return new Ctl();
+}
+
+function setBase(name, remember = false) {
+  if (pick.base !== name) {
+    if (pick.base) pick.map.removeLayer(pick.bases[pick.base]);
+    pick.bases[name].addTo(pick.map);
+    pick.base = name;
+  }
+  pick.baseBtn.innerHTML = name === 'photo' ? '🗺' : '🛰';
+  pick.baseBtn.title = name === 'photo' ? '換成地圖' : '換成衛星影像';
+  if (remember) {
+    try { localStorage.setItem(PICK_BASE_KEY, name); } catch { /* 無痕模式等：不記也沒關係 */ }
+  }
+}
+
+function showPickCoord() {
+  const c = pick.map.getCenter();
+  $id('picker-coord').textContent = `十字位置：${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+}
+
+function goToGps(onlyIfUntouched) {
+  navigator.geolocation?.getCurrentPosition(
+    p => { if (!onlyIfUntouched || !pick.moved) pick.map.setView([p.coords.latitude, p.coords.longitude], 18); },
+    () => {},
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function initPicker() {
+  const m = L.map('pickmap');
+  pick = {
+    map: m,
+    bases: {
+      map: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap', crossOrigin: 'anonymous',
+      }),
+      photo: L.tileLayer(NLSC_PHOTO, {
+        maxZoom: 20, maxNativeZoom: 19, attribution: '正射影像 © 內政部國土測繪中心', crossOrigin: 'anonymous',
+      }),
+    },
+    base: null,
+    refs: L.layerGroup().addTo(m),
+    resolve: null,
+    moved: false,
+  };
+  m.addControl(mapButton('🛰', '換成衛星影像', btn => { pick.baseBtn = btn; setBase(pick.base === 'photo' ? 'map' : 'photo', true); }));
+  pick.baseBtn = m.getContainer().querySelector('.locate-btn');
+  m.addControl(mapButton('📍', '移到我的位置', () => goToGps(false)));
+  m.on('move', showPickCoord);
+  m.on('dragstart zoomstart', () => { pick.moved = true; });
+
+  const done = value => {
+    $id('picker').hidden = true;
+    const resolve = pick.resolve;
+    pick.resolve = null;
+    resolve?.(value);
+  };
+  $id('picker-ok').onclick = () => { const c = m.getCenter(); done([c.lat, c.lng]); };
+  $id('picker-cancel').onclick = () => done(null);
+  $id('picker-close').onclick = () => done(null);
+}
+
+/**
+ * 全螢幕地圖選位置（GPS 有誤差時用）：拖地圖讓十字對準相機。
+ * start＝[lat, lng]（原本的座標）；沒有就先框全部相機、再移到 GPS 位置。
+ * devices＝[{label, lat, lng}] 其他相機，當參考。回傳 [lat, lng]，取消回 null
+ */
+export function pickLocation({ start = null, devices = [] } = {}) {
+  $id('picker').hidden = false;
+  if (!pick) initPicker();
+  // 沒選過就看有沒有網路：衛星影像比較好對位置，但離線時只有看過的街道圖磚
+  setBase(storedBase() || (navigator.onLine ? 'photo' : 'map'));
+  pick.map.invalidateSize();
+  pick.moved = false;
+
+  pick.refs.clearLayers();
+  const pts = devices.filter(d => Number.isFinite(d.lat) && Number.isFinite(d.lng));
+  pts.forEach(d => L.circleMarker([d.lat, d.lng], {
+    radius: 6, color: '#fff', weight: 2, fillColor: '#2d6a4f', fillOpacity: 1, interactive: false,
+  }).bindTooltip(esc(d.label), { permanent: true, direction: 'right', offset: [6, 0], className: 'dev-label' })
+    .addTo(pick.refs));
+
+  if (start) {
+    pick.map.setView(start, 18);
+  } else {
+    if (pts.length) pick.map.fitBounds(L.latLngBounds(pts.map(d => [d.lat, d.lng])).pad(0.3), { maxZoom: 17 });
+    else pick.map.setView([23.7, 121.0], 7);
+    goToGps(true);
+  }
+  pick.moved = false;
+  showPickCoord();
+  return new Promise(resolve => { pick.resolve = resolve; });
+}

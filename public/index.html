@@ -31,6 +31,7 @@
     </div>
 
     <div class="cloud-hint" id="cloud-hint" hidden></div>
+    <div class="cloud-hint warn" id="data-warn" hidden></div>
 
     <div id="devmap"></div>
     <div class="map-legend">
@@ -60,8 +61,9 @@
       <label class="f">樣點編號 <span class="req">*</span></label>
       <input type="text" id="add-station" placeholder="例：S-03（地圖上顯示這個）">
 
-      <label class="f">設備序號 <span class="req">*</span></label>
-      <input type="text" id="add-device-id" placeholder="例：相機機身上的序號">
+      <label class="f">相機編號 <span class="req">*</span></label>
+      <div class="prefixed"><span class="pfx">CA</span>
+        <input type="text" id="add-device-id" data-code="CA" inputmode="numeric" maxlength="3" placeholder="只填數字，例：12 → CA012"></div>
 
       <label class="f">相機型號 <span class="req">*</span></label>
       <select id="add-model"></select>
@@ -77,16 +79,17 @@
       <h3>位置（首次設定）</h3>
       <label class="f">座標（緯度, 經度） <span class="req">*</span></label>
       <input type="text" id="add-coord" placeholder="例：23.51234, 120.30772（可直接貼 Google 地圖的座標）">
-      <button class="btn sub" type="button" id="add-gps" style="margin-top:10px;">📍 取得目前 GPS 位置</button>
+      <div class="row loc-btns">
+        <button class="btn sub" type="button" id="add-gps">📍 取得 GPS 位置</button>
+        <button class="btn sub" type="button" id="add-pick">🗺 在地圖上選</button>
+      </div>
     </div>
 
     <div class="card">
       <h3>耗材</h3>
       <label class="f">記憶卡編號 <span class="req">*</span></label>
-      <div class="row sd-row">
-        <select id="add-sd-prefix"><option>野</option><option>Wv</option></select>
-        <input type="text" id="add-sd" placeholder="號碼，例：032">
-      </div>
+      <div class="prefixed"><span class="pfx">SD</span>
+        <input type="text" id="add-sd" data-code="SD" inputmode="numeric" maxlength="3" placeholder="只填數字，例：32 → SD032"></div>
       <div class="row">
         <div>
           <label class="f">電池類型</label>
@@ -151,6 +154,11 @@
         <button type="button" class="chip" data-tgl id="add-lock">上鎖</button>
         <button type="button" class="chip" data-tgl id="add-rain">遮雨板</button>
       </div>
+      <label class="f">固定方式 <span class="req">*</span></label>
+      <div class="seg" id="add-mount">
+        <button type="button" data-value="角鋼">角鋼</button>
+        <button type="button" data-value="綁帶">綁帶</button>
+      </div>
       <label class="f">設定備註</label>
       <input type="text" id="add-config-note" placeholder="例：夜間紅外燈設為低功率">
     </div>
@@ -198,13 +206,20 @@
       <div class="card">
         <h3>本次巡檢 <span class="auto-chip" id="patrol-meta"></span></h3>
 
+        <!-- 舊設備沒填過的欄位：這次巡檢補上（必填） -->
+        <div class="ask-box" id="ask-box" hidden>
+          <h4>📋 這台還沒填過，請補上 <span class="req">*</span></h4>
+          <div id="ask-fields"></div>
+        </div>
+
         <div class="tgl-row">
           <span>更換相機</span>
           <button class="tgl" type="button" data-tgl data-reveal="#swap-new" id="pt-swap"></button>
         </div>
         <div id="swap-new" class="reveal" hidden>
-          <label class="f" style="margin-top:0;">新設備序號 <span class="req">*</span></label>
-          <input type="text" id="pt-new-id" placeholder="例：新相機機身上的序號">
+          <label class="f" style="margin-top:0;">新相機編號 <span class="req">*</span></label>
+          <div class="prefixed"><span class="pfx">CA</span>
+            <input type="text" id="pt-new-id" data-code="CA" inputmode="numeric" maxlength="3" placeholder="只填數字，例：45 → CA045"></div>
           <label class="f">新相機型號 <span class="req">*</span></label>
           <select id="pt-new-model"></select>
           <label class="f">更換原因 <span class="req">*</span></label>
@@ -218,10 +233,8 @@
         </div>
         <div id="sd-new" class="reveal" hidden>
           <label class="f" style="margin-top:0;">新記憶卡編號 <span class="req">*</span></label>
-          <div class="row sd-row">
-            <select id="pt-sd-new-prefix"><option>野</option><option>Wv</option></select>
-            <input type="text" id="pt-sd-new" placeholder="號碼，例：021">
-          </div>
+          <div class="prefixed"><span class="pfx">SD</span>
+            <input type="text" id="pt-sd-new" data-code="SD" inputmode="numeric" maxlength="3" placeholder="只填數字，例：21 → SD021"></div>
           <p class="sec-note" style="margin-top:6px;" id="pt-sd-retrieved"></p>
         </div>
 
@@ -307,6 +320,11 @@
             <button type="button" class="chip" data-tgl id="pt-lock">上鎖</button>
             <button type="button" class="chip" data-tgl id="pt-rain">遮雨板</button>
           </div>
+          <label class="f">固定方式</label>
+          <div class="seg" id="pt-mount">
+            <button type="button" data-value="角鋼">角鋼</button>
+            <button type="button" data-value="綁帶">綁帶</button>
+          </div>
           <label class="f">設定備註</label>
           <input type="text" id="pt-config-note">
         </div>
@@ -318,7 +336,10 @@
         <div id="loc-new" class="reveal" hidden>
           <label class="f" style="margin-top:0;">新座標（緯度, 經度）</label>
           <input type="text" id="pt-coord" placeholder="例：23.51234, 120.30772">
-          <button class="btn sub" type="button" id="pt-gps" style="margin-top:10px;">📍 取得目前 GPS 位置</button>
+          <div class="row loc-btns">
+            <button class="btn sub" type="button" id="pt-gps">📍 取得 GPS 位置</button>
+            <button class="btn sub" type="button" id="pt-pick">🗺 在地圖上選</button>
+          </div>
         </div>
 
         <div class="tgl-row">
@@ -405,7 +426,6 @@
     <h2 class="pg" id="stats-title">統計</h2>
     <div class="seg" id="stats-tabs">
       <button type="button" data-tab="down" class="on">漏拍</button>
-      <button type="button" data-tab="life">續航</button>
       <button type="button" data-tab="work">工作量</button>
     </div>
     <div class="monthbar" id="stats-period">
@@ -419,6 +439,22 @@
   </section>
 
 </main>
+
+<!-- 在地圖上選位置：拖地圖讓十字對準相機 -->
+<div class="picker" id="picker" hidden>
+  <div class="picker-bar"><b>🗺 拖地圖，讓十字對準相機</b><button type="button" id="picker-close" aria-label="關閉">✕</button></div>
+  <div class="picker-wrap">
+    <div id="pickmap"></div>
+    <div class="picker-cross"></div>
+  </div>
+  <div class="picker-foot">
+    <div class="coord" id="picker-coord"></div>
+    <div class="row">
+      <button class="btn sub" type="button" id="picker-cancel">取消</button>
+      <button class="btn" type="button" id="picker-ok">用這個位置</button>
+    </div>
+  </div>
+</div>
 
 <nav class="nav">
   <button class="active" data-screen="scr-home"><span class="ic">🏠</span>設備</button>

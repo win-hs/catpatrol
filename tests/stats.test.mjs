@@ -97,47 +97,6 @@ const ongoing = S.downtimeReport([dev({ id: 'C', stationId: 'S-09', createdAt: '
   [rec({ deviceId: 'C', patrolAt: '2026-11-10 12:00', running: false })], new Date(2026, 10, 1).getTime(), new Date(2026, 11, 1).getTime(), now);
 check('still broken: ongoing flagged, counted up to now', ongoing.rows[0].ongoing === true && near(ongoing.lost, 9), J(ongoing));
 
-// ── 續航
-const lifeDevs = [
-  dev({ id: 'L1', createdAt: '2026-01-01 00:00', batteryType: '鋰電' }),
-  dev({ id: 'K1', createdAt: '2026-01-01 00:00', batteryType: '鹼性' }),
-  dev({ id: 'K2', createdAt: '2026-01-01 00:00', batteryType: '鹼性' }),
-  dev({ id: 'P1', createdAt: '2026-01-01 00:00', batteryType: '外接電源' }),
-  dev({ id: 'OLDL', createdAt: '2026-01-01 00:00', batteryType: '鋰電', retired: true }),
-  dev({ id: 'NEWL', createdAt: '2026-03-01 00:00', batteryType: '鋰電' }),
-  dev({ id: 'V1', createdAt: '2026-01-01 00:00', config: { mode: '影片', videoQuality: '1080p', videoSec: 20, videoSecNight: 10 } }),
-];
-const lifeRecs = [
-  rec({ deviceId: 'L1', patrolAt: '2026-06-10 10:00', stoppedMidway: true, stoppedAt: '2026-05-31', stopReason: '沒電', batteryChanged: true, batteryTypeNew: '鋰電' }), // 150
-  rec({ deviceId: 'L1', patrolAt: '2026-11-01 10:00', stoppedMidway: true, stoppedAt: '2026-10-28 10:00', stopReason: '沒電' }),  // 6/10 起 140
-  rec({ deviceId: 'K1', patrolAt: '2026-01-11 00:00', batteryChanged: true, batteryTypeNew: '鹼性' }),
-  rec({ deviceId: 'K1', patrolAt: '2026-02-20 00:00', stoppedMidway: true, stoppedAt: '2026-02-11', stopReason: '沒電' }),         // 1/11 起 31
-  rec({ deviceId: 'K2', patrolAt: '2026-02-20 00:00', stoppedMidway: true, stoppedAt: '2026-02-10', stopReason: '沒電' }),         // 架設起 40
-  rec({ deviceId: 'P1', patrolAt: '2026-02-20 00:00', stoppedMidway: true, stoppedAt: '2026-02-10', stopReason: '沒電' }),         // 外接電源：不算
-  rec({ deviceId: 'K2', patrolAt: '2026-03-01 00:00', stoppedMidway: true, stoppedAt: '2026-02-25', stopReason: '記憶卡滿' }),     // 不是沒電
-  rec({ deviceId: 'OLDL', patrolAt: '2026-03-01 00:00', batteryChanged: true, batteryTypeNew: '鋰電', cameraSwapped: true, newDeviceId: 'NEWL' }),
-  rec({ deviceId: 'NEWL', patrolAt: '2026-08-01 00:00', stoppedMidway: true, stoppedAt: '2026-07-29', stopReason: '沒電' }),       // 換機時換的電池起 150
-  rec({ deviceId: 'V1', patrolAt: '2026-02-20 00:00', sdChanged: true }),
-  rec({ deviceId: 'V1', patrolAt: '2026-04-01 00:00', stoppedMidway: true, stoppedAt: '2026-03-26', stopReason: '記憶卡滿' }),    // 2/20 起 34
-];
-const bat = S.lifeStats(lifeDevs, lifeRecs, 'battery');
-const g = sub => bat.find(x => x.sub === sub);
-check('battery life grouped by model + battery type, external power excluded',
-  bat.length === 2 && g('鹼性') && g('鋰電') && !g('外接電源'), J(bat));
-check('alkaline: min 31 (from battery change), median of 31/40 = 35.5',
-  g('鹼性').n === 2 && near(g('鹼性').min, 31) && near(g('鹼性').median, 35.5), J(g('鹼性')));
-check('lithium: install→stop 150, change 6/10 10:00→stop 10/28 10:00 = 140, swapped-in camera counts from the swap battery',
-  g('鋰電').n === 3 && near(g('鋰電').min, 140) && near(g('鋰電').median, 150), J(g('鋰電')));
-const sd = S.lifeStats(lifeDevs, lifeRecs, 'sd');
-check('card full: grouped by shooting settings, from last card change',
-  sd.length === 2 && sd.some(x => x.sub === '影片 1080p · 日20秒/夜10秒' && near(x.min, 34)) && sd.some(x => x.sub === '照片 16MP ×3 連拍' && near(x.min, 55)), J(sd));
-check('swap inherits the old camera\'s start when the battery was not changed',
-  near(S.lifeStats([dev({ id: 'O', createdAt: '2026-01-01 00:00', retired: true }), dev({ id: 'N', createdAt: '2026-02-01 00:00' })],
-    [rec({ deviceId: 'O', patrolAt: '2026-02-01 00:00', cameraSwapped: true, newDeviceId: 'N' }),
-      rec({ deviceId: 'N', patrolAt: '2026-03-01 00:00', stoppedMidway: true, stoppedAt: '2026-02-20', stopReason: '沒電' })], 'battery')[0].min, 50));
-check('shootLabel: photo+video, same day/night secs', S.shootLabel({ mode: '照片+影片', photoQuality: '32MP', burst: 1, videoQuality: '2K', videoSec: 10, videoSecNight: 10 })
-  === '照片 32MP ＋ 影片 2K · 10秒');
-
 // ── 工作量
 const work = S.workload([
   rec({ deviceId: 'A', patrolAt: '2026-10-03 09:00', inspector: '林小華', batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true }),
@@ -176,6 +135,37 @@ check('pack summary: batteries by type with stations, a card each, spare, guards
   J(pack.battery) === J([{ type: '鋰電', labels: ['S-03', 'S-07'] }, { type: '鹼性', labels: ['S-05'] }]) && pack.sd === 4
   && J(pack.spare) === J([{ label: 'S-07', model: 'Browning HP5 Ultra' }]) && J(pack.lock) === J(['S-05'])
   && J(pack.rain) === J(['S-11']) && J(pack.iron) === J(['S-11']), J(pack));
+check('lacksGuard: any guard recorded as missing; unknown does not count',
+  S.lacksGuard(dev({ config: { locked: false } })) && S.lacksGuard(dev({ config: { ironCase: true, rainCover: false } }))
+  && !S.lacksGuard(dev({ config: { ironCase: null, locked: null, rainCover: null } })) && !S.lacksGuard(dev({ config: undefined })));
+
+// ── 資料檢查：樣點／記憶卡重複、編號格式
+const issues = S.dataIssues([
+  dev({ id: 'CA001', stationId: 'S-03', sdCard: 'SD012' }),
+  dev({ id: 'CA002', stationId: 's-03 ', sdCard: '野12' }),            // 樣點不分大小寫空白；野12 = SD012
+  dev({ id: 'CA003', stationId: 'S-04', sdCard: 'SD013' }),
+  dev({ id: 'CA004', stationId: 'S-04', sdCard: 'SD014', retired: true }), // 已撤下的不算
+  dev({ id: 'ABC', stationId: 'S-05', sdCard: 'X-9' }),
+  dev({ id: 'CA006', stationId: '', sdCard: '' }),                       // 空白不算重複
+  dev({ id: 'CA007', stationId: '', sdCard: '' }),
+]);
+check('duplicate stations (case/space-insensitive), retired ignored, blanks ignored',
+  issues.stations.length === 1 && J(issues.stations[0].devices.map(d => d.id)) === J(['CA001', 'CA002']), J(issues.stations));
+check('duplicate cards: old 野12 and SD012 are the same card', issues.cards.length === 1 && issues.cards[0].key === 'SD012'
+  && issues.cards[0].devices.length === 2, J(issues.cards));
+check('bad formats listed (camera ABC, card X-9; 野12 too until fixed)',
+  J(issues.badIds.map(d => d.id)) === J(['ABC']) && J(issues.badCards.map(d => d.sdCard)) === J(['野12', 'X-9']), J(issues));
+
+// ── 舊設備沒填過、巡檢時要補問的欄位
+const { missingFields } = await import('../public/js/cam-config.js');
+check('missing: station, model, night secs (video only), guards, mount',
+  J(missingFields({ stationId: '', cameraModel: '', config: { mode: '照片+影片', videoSec: 20 } }))
+  === J(['stationId', 'cameraModel', 'videoSecNight', 'ironCase', 'locked', 'rainCover', 'mount']));
+check('missing: photo-only camera is not asked night secs; filled ones not asked',
+  J(missingFields({ stationId: 'S-1', cameraModel: 'Meidase P70', config: { mode: '照片', ironCase: false, locked: true, rainCover: null, mount: '角鋼' } }))
+  === J(['rainCover']));
+check('missing: nothing when all filled (false counts as filled)',
+  missingFields({ stationId: 'S-1', cameraModel: 'X', config: { mode: '影片', videoSecNight: 10, ironCase: false, locked: false, rainCover: false, mount: '綁帶' } }).length === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,6 +1,6 @@
 // ⚠️ 每次改動 shell 檔案（html/css/js）後都必須改這個版本號（js/app.js 的 APP_VERSION 一起改），
 // 否則已安裝的裝置會一直吃舊快取，更新永遠送不出去。
-const VERSION = 'v0.4';
+const VERSION = 'v0.5';
 const SHELL_CACHE = `catpatrol-shell-${VERSION}`;
 const TILE_CACHE = 'catpatrol-tiles';
 const TILE_LIMIT = 500;
@@ -59,8 +59,8 @@ self.addEventListener('fetch', event => {
   // 雲端 API（同網域 Worker 代轉）：一律走網路，失敗交給上傳佇列處理，絕不快取
   if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
 
-  // OSM 圖磚：先給快取、背景更新，巡檢前看過的區域離線仍可見
-  if (url.hostname.endsWith('tile.openstreetmap.org')) {
+  // OSM 圖磚、國土測繪中心正射影像（選位置用）：先給快取、背景更新，巡檢前看過的區域離線仍可見
+  if (url.hostname.endsWith('tile.openstreetmap.org') || url.hostname === 'wmts.nlsc.gov.tw') {
     event.respondWith((async () => {
       const cache = await caches.open(TILE_CACHE);
       const hit = await cache.match(request);

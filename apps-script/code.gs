@@ -7,7 +7,7 @@
  */
 
 const TOKEN_PROP = 'API_TOKEN';          // 指令碼屬性名稱；值要和 Cloudflare Worker 的 API_TOKEN 一樣
-const VERSION = 'v0.4';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
+const VERSION = 'v0.5';                  // 每次改這份程式就加版號；App 會檢查，太舊時在首頁提醒重新部署
 const SS_NAME = 'CATPatrol_資料庫';
 const PHOTO_ROOT = 'CATPatrol_照片';
 const STALE_DAYS = 60;
@@ -20,7 +20,7 @@ const HEADERS = {
     '拍攝模式', '連拍張數', '感度', '間隔秒', '設定備註', '建立人員', '建立時間',
     '最後巡檢時間', '最後巡檢人員', '持續運作', '最後備註', '狀態',
     '相機型號', '照片畫質', '影片畫質', '影片秒數', '工作時間', '樣點編號',
-    '夜間影片秒數', '鐵殼', '上鎖', '遮雨板'],
+    '夜間影片秒數', '鐵殼', '上鎖', '遮雨板', '固定方式'],
   '巡檢紀錄': ['record_id', '巡檢時間', 'project_id', 'device_id', '巡檢人員', '持續運作', '更換記憶卡',
     '新記憶卡編號', '取回記憶卡編號', '更換電池', '新電池類型', '電量%', '設定有變動', '新設定摘要',
     '位置有變動', '經度', '緯度', '照片張數', '照片資料夾連結', '備註', '自訂欄位JSON', '上傳時間',
@@ -38,8 +38,26 @@ const D = {
   mode: 8, burst: 9, sensitivity: 10, interval: 11, configNote: 12, createdBy: 13, createdAt: 14,
   lastPatrolAt: 15, lastInspector: 16, running: 17, lastNote: 18, status: 19,
   cameraModel: 20, photoQuality: 21, videoQuality: 22, videoSec: 23, workHours: 24, stationId: 25,
-  videoSecNight: 26, ironCase: 27, locked: 28, rainCover: 29,
+  videoSecNight: 26, ironCase: 27, locked: 28, rainCover: 29, mount: 30,
 };
+
+/* ════════ 編號格式（v0.5）：相機 CA＋3 碼、記憶卡 SD＋3 碼，前端 form.js 的 camId / sdId 規則相同 ════════ */
+
+/** 132、ca-78、CA1 → CA132、CA078、CA001；只認 1–999，看不懂的原樣回傳 */
+function camId_(v) {
+  return code_(v, /^(?:ca)?[\s\-_]*(\d+)$/i, 'CA');
+}
+
+/** 野12、Wv12、sd 12、12 → SD012（野／Wv 意思一樣） */
+function sdId_(v) {
+  return code_(v, /^(?:sd|野|wv)?[\s\-_]*(\d+)$/i, 'SD');
+}
+
+function code_(v, re, prefix) {
+  const m = String(v == null ? '' : v).trim().match(re);
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 999 ? prefix + ('00' + n).slice(-3) : v;
+}
 
 /* ════════ 進入點 ════════ */
 
@@ -161,6 +179,7 @@ function bootstrap_(user) {
         ironCase: boolOrNull_(r[D.ironCase]),
         locked: boolOrNull_(r[D.locked]),
         rainCover: boolOrNull_(r[D.rainCover]),
+        mount: r[D.mount] || '',
         note: r[D.configNote],
       },
       createdBy: r[D.createdBy],
@@ -228,6 +247,9 @@ function deleteFieldDef_(body) {
 
 function addDevice_(body) {
   const d = body.payload;
+  // 舊版 App 或還沒上傳的舊資料可能是舊寫法，寫入前統一
+  d.id = camId_(d.id);
+  d.sdCard = sdId_(d.sdCard);
   const ss = getSS_();
   const sheet = ss.getSheetByName('設備');
   if (findRowIndex_(sheet, d.id) > 0) return { ok: true, dedup: true };
@@ -258,8 +280,18 @@ function addDevice_(body) {
   return { ok: true, id: d.id };
 }
 
+/** 巡檢紀錄裡的相機與記憶卡編號統一成新寫法（手機上還沒上傳的舊資料上傳時才不會對不上） */
+function normRecord_(rec) {
+  rec.deviceId = camId_(rec.deviceId);
+  if (rec.newDeviceId) rec.newDeviceId = camId_(rec.newDeviceId);
+  rec.sdNew = sdId_(rec.sdNew);
+  rec.sdRetrieved = sdId_(rec.sdRetrieved);
+  if (rec.deviceState) rec.deviceState.sdCard = sdId_(rec.deviceState.sdCard);
+  return rec;
+}
+
 function addRecord_(body) {
-  const rec = body.payload;
+  const rec = normRecord_(body.payload);
   const ss = getSS_();
   const sheet = ss.getSheetByName('巡檢紀錄');
 
@@ -282,7 +314,7 @@ function addRecord_(body) {
  * 換機紀錄 App 不允許上傳後修改，這裡不處理換機。
  */
 function updateRecord_(body) {
-  const rec = body.payload;
+  const rec = normRecord_(body.payload);
   const ss = getSS_();
   const sheet = ss.getSheetByName('巡檢紀錄');
   const idx = findRowIndex_(sheet, rec.recordId);
@@ -303,6 +335,7 @@ function updateRecord_(body) {
     const drow = dsheet.getRange(di, 1, 1, dw).getValues()[0];
     if (cell_(drow[D.lastPatrolAt]) === rec.patrolAt) {
       writeDeviceState_(drow, rec.deviceState);
+      applyFill_(drow, rec.fill);
       dsheet.getRange(di, 1, 1, dw).setValues([drow]);
     }
   }
@@ -401,8 +434,9 @@ function applyRecordToDevice_(ss, rec) {
   sheet.getRange(idx, 1, 1, width).setValues([row]);
 }
 
-/** 巡檢時的電量，以及有變動的記憶卡、電池、設定、位置 */
+/** 巡檢時的電量，以及有變動的記憶卡、電池、設定、位置，和這次補填的樣點編號／相機型號 */
 function applyChanges_(row, rec) {
+  applyFill_(row, rec.fill);
   row[D.batteryPct] = rec.batteryPct;
   if (rec.sdChanged) row[D.sdCard] = rec.sdNew;
   if (rec.batteryChanged) row[D.batteryType] = rec.batteryTypeNew;
@@ -411,6 +445,13 @@ function applyChanges_(row, rec) {
     row[D.lng] = rec.lng;
     row[D.lat] = rec.lat;
   }
+}
+
+/** 舊設備沒填過、這次巡檢補上的樣點編號／相機型號（設定類的補填走 config） */
+function applyFill_(row, fill) {
+  if (!fill) return;
+  if (fill.stationId) row[D.stationId] = fill.stationId;
+  if (fill.cameraModel) row[D.cameraModel] = fill.cameraModel;
 }
 
 function writeConfig_(row, cfg) {
@@ -426,6 +467,7 @@ function writeConfig_(row, cfg) {
   row[D.ironCase] = blank_(cfg.ironCase);
   row[D.locked] = blank_(cfg.locked);
   row[D.rainCover] = blank_(cfg.rainCover);
+  row[D.mount] = cfg.mount || '';
   row[D.configNote] = cfg.note || '';
 }
 
@@ -473,6 +515,7 @@ function getSS_() {
   const first = ss.getSheets()[0];
   if (!HEADERS[first.getName()]) ss.deleteSheet(first);
   props.setProperty('SHEETS_VERSION', VERSION);
+  props.setProperty('IDS_FIXED', now_()); // 新試算表沒有舊編號要改
   return ss;
 }
 
@@ -481,6 +524,91 @@ function upgradeSheets_(ss, props) {
   if (props.getProperty('SHEETS_VERSION') === VERSION) return;
   initSheets_(ss);
   props.setProperty('SHEETS_VERSION', VERSION);
+  if (!props.getProperty('IDS_FIXED')) fixIds_(ss, props);
+}
+
+/**
+ * 於編輯器手動執行：把相機編號統一成 CA＋3 碼、記憶卡統一成 SD＋3 碼。
+ * v0.5 換版後第一次被呼叫時已自動跑過一次；之後在試算表手動貼了舊寫法、想再整理時才需要。
+ */
+function fixIds() {
+  const ss = getSS_();
+  return fixIds_(ss, PropertiesService.getScriptProperties());
+}
+
+/**
+ * 改編號：設備（序號、QR碼內容、記憶卡）、巡檢紀錄（序號、新設備編號、新卡、取回卡）、照片索引（序號），
+ * 以及照片資料夾名稱。改之前先複製一份試算表備份。
+ * 兩個不同的舊編號會變成同一個新編號時（例如 12 和 CA012 同時存在）不改，留給人工處理；看不懂的編號原樣保留。
+ */
+function fixIds_(ss, props) {
+  props.setProperty('IDS_FIXED', now_()); // 先記下：同時進來的請求不會重複跑
+  const backup = DriveApp.getFileById(ss.getId()).makeCopy(SS_NAME + '_備份_改編號前_' + now_().slice(0, 10));
+
+  // 所有出現過的相機編號 → 新編號；撞號的不改
+  const groups = {};
+  const seen = id => {
+    const key = String(id).trim();
+    if (!key) return;
+    const to = String(camId_(key));
+    (groups[to] = groups[to] || {})[key] = true;
+  };
+  rows_(ss, '設備').forEach(r => seen(r[D.id]));
+  rows_(ss, '巡檢紀錄').forEach(r => { seen(r[3]); seen(r[23]); });
+  rows_(ss, '照片索引').forEach(r => seen(r[2]));
+  const rename = {};
+  const clashes = [];
+  Object.keys(groups).forEach(to => {
+    const from = Object.keys(groups[to]);
+    if (from.length > 1) clashes.push(from.join(' / ') + ' → ' + to);
+    else if (from[0] !== to) rename[from[0]] = to;
+  });
+  const cam = v => (rename.hasOwnProperty(String(v).trim()) ? rename[String(v).trim()] : v);
+
+  const changed = [
+    ['設備 序號', mapColumn_(ss, '設備', D.id, cam)],
+    ['設備 QR碼內容', mapColumn_(ss, '設備', D.qrCode, cam)],
+    ['設備 記憶卡', mapColumn_(ss, '設備', D.sdCard, sdId_)],
+    ['巡檢紀錄 序號', mapColumn_(ss, '巡檢紀錄', 3, cam)],
+    ['巡檢紀錄 新設備編號', mapColumn_(ss, '巡檢紀錄', 23, cam)],
+    ['巡檢紀錄 新記憶卡', mapColumn_(ss, '巡檢紀錄', 7, sdId_)],
+    ['巡檢紀錄 取回記憶卡', mapColumn_(ss, '巡檢紀錄', 8, sdId_)],
+    ['照片索引 序號', mapColumn_(ss, '照片索引', 2, cam)],
+  ];
+
+  // 照片資料夾：CATPatrol_照片 / 專案 / 設備序號
+  let folders = 0;
+  const projects = photoRoot_().getFolders();
+  while (projects.hasNext()) {
+    const devices = projects.next().getFolders();
+    while (devices.hasNext()) {
+      const f = devices.next();
+      if (rename.hasOwnProperty(f.getName())) { f.setName(rename[f.getName()]); folders++; }
+    }
+  }
+
+  const report = changed.map(c => c[0] + ' ' + c[1] + ' 格').join('、') + '、照片資料夾 ' + folders + ' 個'
+    + (clashes.length ? '。撞號沒改（請手動處理）：' + clashes.join('；') : '')
+    + '。備份：' + backup.getName();
+  props.setProperty('IDS_FIX_REPORT', report);
+  Logger.log(report);
+  return report;
+}
+
+/** 一欄（0-based）逐格換值，有變才寫回 */
+function mapColumn_(ss, name, col, fn) {
+  const sheet = ss.getSheetByName(name);
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) return 0;
+  const range = sheet.getRange(2, col + 1, n, 1);
+  let count = 0;
+  const out = range.getValues().map(r => {
+    const v = fn(r[0]);
+    if (v !== r[0]) count++;
+    return [v];
+  });
+  if (count) range.setValues(out);
+  return count;
 }
 
 function initSheets_(ss) {
@@ -570,6 +698,7 @@ function configSummary_(cfg) {
   if (guards.some(g => g[1] != null)) {
     parts.push(guards.map(g => g[0] + (g[1] ? '✓' : g[1] === false ? '✗' : '—')).join(' '));
   }
+  if (cfg.mount) parts.push('固定' + cfg.mount);
   return parts.join(' · ');
 }
 
@@ -628,11 +757,12 @@ function clearAllData() {
  * 各手機下次開啟 App 時會跟著移除這些設備。
  */
 function deleteDevices() {
-  const IDS = ['132', 'Ca-78'];
+  const IDS = ['132', 'Ca-78']; // 寫 132、CA132、ca-132 都可以
 
   const ss = getSS_();
-  const wanted = IDS.map(id => String(id).trim().toLowerCase());
-  const match = v => wanted.indexOf(String(v).trim().toLowerCase()) >= 0;
+  const key = v => String(camId_(v)).trim().toLowerCase();
+  const wanted = IDS.map(key);
+  const match = v => wanted.indexOf(key(v)) >= 0;
 
   // 照片資料夾路徑要用專案名稱，刪設備列之前先記下來
   const projects = {};
@@ -659,7 +789,7 @@ function deleteDevices() {
     Logger.log('照片資料夾已移到垃圾桶：' + projectName + '/' + r[D.id]);
   });
 
-  const found = devices.map(r => String(r[D.id]).toLowerCase());
-  const missing = IDS.filter(id => found.indexOf(String(id).trim().toLowerCase()) < 0);
+  const found = devices.map(r => key(r[D.id]));
+  const missing = IDS.filter(id => found.indexOf(key(id)) < 0);
   if (missing.length) Logger.log('設備分頁找不到：' + missing.join('、') + '（請確認序號）');
 }

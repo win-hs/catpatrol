@@ -24,7 +24,7 @@ const daysAgo = n => {
 const cfg = { mode: '照片', photoQuality: '32MP', burst: 3, videoQuality: '', videoSec: null, sensitivity: '中', interval: 0, workHours: '全天', note: '' };
 const dev = (id, stationId, i, days, extra = {}) => ({
   id, projectId: 'P1', stationId, qrCode: id, cameraModel: 'Meidase P70', lng: 121.0 + i * 0.002, lat: 23.5 + i * 0.002,
-  sdCard: '野1' + i, batteryType: '鋰電', batteryPct: 75, config: cfg, createdBy: '王小明', createdAt: daysAgo(200),
+  sdCard: 'SD01' + i, batteryType: '鋰電', batteryPct: 75, config: cfg, createdBy: '王小明', createdAt: daysAgo(200),
   lastPatrolAt: daysAgo(days), lastInspector: '王小明', running: true, lastNote: '', retired: false, ...extra,
 });
 
@@ -42,35 +42,38 @@ const state = {
   projects: [{ id: 'P1', name: '測試專案', createdAt: '2026-10-01 10:00', status: '進行中' }],
   fieldDefs: [],
   devices: [
-    dev('CAM-1', 'S-01', 0, 5, { batteryChangedAt: daysAgo(45) }),
-    dev('CAM-2', 'S-02', 1, 70, { config: { ...cfg, mode: '照片+影片', videoQuality: '1080p', videoSec: 30, videoSecNight: 15,
-      ironCase: true, locked: true, rainCover: false } }),
-    dev('CAM-3', 'S-03', 2, 100, { lastPhotoId: 'PH-3', prevSdCard: '野08', batteryPct: 25 }),
-    dev('CAM-0', 'S-04', 3, 130, { retired: true, running: false }), // 130 天前被 CAM-4 換下
-    dev('CAM-4', 'S-04', 3, 130, { createdAt: daysAgo(130), config: { ...cfg, locked: false } }),
-    dev('CAM-5', 'S-05', 4, 10, { running: false, lastNote: '相機被偷，<b>需補</b>' }),
+    dev('CA001', 'S-01', 0, 5, { batteryChangedAt: daysAgo(45) }),
+    dev('CA002', 'S-02', 1, 70, { config: { ...cfg, mode: '照片+影片', videoQuality: '1080p', videoSec: 30, videoSecNight: 15,
+      ironCase: true, locked: true, rainCover: false, mount: '角鋼' } }),
+    dev('CA003', 'S-03', 2, 100, { lastPhotoId: 'PH-3', prevSdCard: 'SD008', batteryPct: 25 }),
+    dev('CA010', 'S-04', 3, 130, { retired: true, running: false }), // 130 天前被 CA004 換下
+    dev('CA004', 'S-04', 3, 130, { createdAt: daysAgo(130), config: { ...cfg, locked: false } }),
+    dev('CA005', 'S-05', 4, 10, { running: false, lastNote: '相機被偷，<b>需補</b>' }),
+    // 資料檢查用：樣點和 CA002 重複、記憶卡和 CA002 同一張（SD011）；另一台編號格式看不懂
+    dev('CA006', 's-02', 5, 20, { sdCard: 'SD011', config: { ...cfg, ironCase: true, locked: true, rainCover: true, mount: '綁帶' } }),
+    dev('ABC', 'S-07', 6, 15, { sdCard: 'X-9' }),
   ],
   records: [
-    rec(150, 'CAM-1', '林小華', { sdChanged: true, sdNew: '野11', sdRetrieved: '野10' }),
-    rec(100, 'CAM-1', '王小明', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野10', sdRetrieved: '野11', ...stop(112, '沒電') }),
-    rec(45, 'CAM-1', '林小華', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野11', sdRetrieved: '野10' }),
-    rec(5, 'CAM-1', '王小明', { sdChanged: true, sdNew: '野10', sdRetrieved: '野11', note: '支架鬆了，已鎖緊' }),
-    rec(140, 'CAM-2', '王小明', { sdChanged: true, sdNew: '野21', sdRetrieved: '野20' }),
-    rec(70, 'CAM-2', '林小華', { sdChanged: true, sdNew: '野20', sdRetrieved: '野21', ...stop(80, '記憶卡滿') }),
-    rec(160, 'CAM-3', '林小華', { batteryChanged: true, batteryTypeNew: '鋰電' }),
-    rec(100, 'CAM-3', '王小明', { sdChanged: true, sdNew: '野12', sdRetrieved: '野08', batteryPct: 25, ...stop(115, '記憶卡滿') }),
-    rec(170, 'CAM-0', '王小明', { sdChanged: true, sdNew: '野31', sdRetrieved: '野30' }),
-    rec(130, 'CAM-0', '林小華', { running: false, cameraSwapped: true, newDeviceId: 'CAM-4', newCameraModel: 'Meidase P70',
-      swapReason: '進水故障', batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野13', sdRetrieved: '野31',
+    rec(150, 'CA001', '林小華', { sdChanged: true, sdNew: 'SD011', sdRetrieved: 'SD010' }),
+    rec(100, 'CA001', '王小明', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: 'SD010', sdRetrieved: 'SD011', ...stop(112, '沒電') }),
+    rec(45, 'CA001', '林小華', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: 'SD011', sdRetrieved: 'SD010' }),
+    rec(5, 'CA001', '王小明', { sdChanged: true, sdNew: 'SD010', sdRetrieved: 'SD011', note: '支架鬆了，已鎖緊' }),
+    rec(140, 'CA002', '王小明', { sdChanged: true, sdNew: 'SD021', sdRetrieved: 'SD020' }),
+    rec(70, 'CA002', '林小華', { sdChanged: true, sdNew: 'SD020', sdRetrieved: 'SD021', ...stop(80, '記憶卡滿') }),
+    rec(160, 'CA003', '林小華', { batteryChanged: true, batteryTypeNew: '鋰電' }),
+    rec(100, 'CA003', '王小明', { sdChanged: true, sdNew: 'SD012', sdRetrieved: 'SD008', batteryPct: 25, ...stop(115, '記憶卡滿') }),
+    rec(170, 'CA010', '王小明', { sdChanged: true, sdNew: 'SD031', sdRetrieved: 'SD030' }),
+    rec(130, 'CA010', '林小華', { running: false, cameraSwapped: true, newDeviceId: 'CA004', newCameraModel: 'Meidase P70',
+      swapReason: '進水故障', batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: 'SD013', sdRetrieved: 'SD031',
       note: '舊機鏡頭起霧進水', ...stop(150, '其他') }),
-    rec(60, 'CAM-5', '王小明', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: '野15', sdRetrieved: '野14' }),
-    rec(10, 'CAM-5', '林小華', { running: false, note: '相機被偷，<b>需補</b>', ...stop(20, '其他') }),
+    rec(60, 'CA005', '王小明', { batteryChanged: true, batteryTypeNew: '鋰電', sdChanged: true, sdNew: 'SD015', sdRetrieved: 'SD014' }),
+    rec(10, 'CA005', '林小華', { running: false, note: '相機被偷，<b>需補</b>', ...stop(20, '其他') }),
   ],
 };
 const writes = [];
 const photoHits = [];
 let expired = false;
-let backendVersion = 'v0.4'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
+let backendVersion = 'v0.5'; // /__version?v= 改掉（空字串＝模擬還沒部署新版的舊 Apps Script）
 
 const send = (res, status, body, headers = {}) => {
   res.writeHead(status, { 'Cache-Control': 'no-store', ...headers });

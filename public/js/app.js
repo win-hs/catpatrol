@@ -5,12 +5,12 @@ import * as camera from './camera.js';
 import * as sync from './sync.js';
 import * as api from './api.js';
 import * as stats from './stats.js';
-import { configForm, configSummary, MODEL_OPTIONS } from './cam-config.js';
+import { configForm, configSummary, missingFields, MODEL_OPTIONS, MOUNTS } from './cam-config.js';
 
 // 與 sw.js 的 VERSION 一起改：顯示在標題旁，用來確認手機上是不是已經換成新版
-const APP_VERSION = 'v0.4';
+const APP_VERSION = 'v0.5';
 // 這版網頁需要的 Apps Script 版本（code.gs 的 VERSION）；雲端比這舊就在首頁提醒重新部署
-const BACKEND_NEEDED = 'v0.4';
+const BACKEND_NEEDED = 'v0.5';
 let backendVersion = '';
 
 const versionParts = v => String(v || '0').replace(/^v/, '').split('.').map(Number);
@@ -91,6 +91,13 @@ document.addEventListener('click', e => {
   }
 });
 
+// 相機／記憶卡編號欄：離開時補成 3 碼（填 1 顯示 001）
+document.addEventListener('focusout', e => {
+  if (!e.target.dataset?.code) return;
+  const full = form.codeValue(e.target);
+  if (full) e.target.value = full.slice(2);
+});
+
 // 以 form 的 submit 取代 dialog 的 close 事件：close 在部分 WebView 不觸發
 function openDialog(dialogId) {
   return new Promise(resolve => {
@@ -157,11 +164,13 @@ async function renderHome() {
 
   if (!projects.length) {
     list.innerHTML = '<div class="hint">還沒有任何專案。請點上方的「＋ 新專案」建立第一個。</div>';
+    $('data-warn').hidden = true;
     map.renderDevices([]);
     return;
   }
 
   const devices = (await store.getDevices(store.settings.projectId)).sort(byStation);
+  const dupIds = renderDataWarn(devices);
   if (!devices.length) {
     list.innerHTML = '<div class="hint">此專案還沒有設備，點下方「＋ 新增設備」建立第一台。</div>';
     map.renderDevices([]);
@@ -172,9 +181,11 @@ async function renderHome() {
     const status = store.deviceStatus(d);
     const camera = `序號 ${esc(d.id)}${d.cameraModel ? ` · ${esc(d.cameraModel)}` : ''}`;
     const memo = d.lastNote ? `<small class="memo">📝 ${esc(d.lastNote)}</small>` : '';
+    const dup = dupIds.get(String(d.id));
     return `<div class="dev" data-device="${esc(d.id)}">
       <div class="icon">📷</div>
       <div class="info"><b>${esc(store.stationLabel(d))}</b><small>${camera}</small>`
+      + (dup ? `<small class="dup">⚠ ${esc(dup.join('、'))}</small>` : '')
       + `<small>${esc(store.deviceSummary(d))}</small>${memo}`
       + `<div class="acts"><button type="button" class="btn small" data-patrol="${esc(d.id)}">✅ 巡檢這台</button>`
       + `<button type="button" class="btn small ghost" data-hist="${esc(d.id)}">📜 履歷 ▾</button></div></div>
@@ -202,6 +213,34 @@ async function renderHome() {
     closeHistory();
   }
   scrollToSelected = false;
+}
+
+/**
+ * 首頁紅字：樣點編號重複、記憶卡重複、編號格式不對（雲端改編號時看不懂、要人工改的）。
+ * 回傳 Map(設備序號 → 這台的問題)，卡片上也標出來
+ */
+function renderDataWarn(devices) {
+  const issues = stats.dataIssues(devices);
+  const flags = new Map();
+  const flag = (d, text) => flags.set(String(d.id), [...(flags.get(String(d.id)) || []), text]);
+  const lines = [];
+  issues.stations.forEach(g => {
+    lines.push(`樣點重複：${g.devices[0].stationId}（${g.devices.map(d => d.id).join('、')}）`);
+    g.devices.forEach(d => flag(d, '樣點重複'));
+  });
+  issues.cards.forEach(g => {
+    lines.push(`記憶卡重複：${g.key}（${g.devices.map(d => `${store.stationLabel(d)} ${d.id}`).join('、')}）`);
+    g.devices.forEach(d => flag(d, '記憶卡重複'));
+  });
+  // 雲端還沒改編號（舊版）時每台都會是舊寫法，不提醒
+  if (backendVersion && !olderThan(backendVersion, 'v0.5')) {
+    const bad = [...issues.badIds.map(d => d.id), ...issues.badCards.map(d => `${store.stationLabel(d)} 的 ${d.sdCard}`)];
+    if (bad.length) lines.push(`編號不是 CA／SD＋3 碼，請到試算表修改：${bad.join('、')}`);
+  }
+  const el = $('data-warn');
+  el.hidden = !lines.length;
+  el.innerHTML = lines.map(t => `⚠️ ${esc(t)}`).join('<br>');
+  return flags;
 }
 
 /**
@@ -369,7 +408,9 @@ async function renderPack({ reset = false } = {}) {
   const same = list => list.length === chosen.length && list.every(d => packSel.has(String(d.id)));
   const preset = (name, label, list) =>
     `<button type="button" data-preset="${name}"${same(list) && list.length ? ' class="on"' : ''}>${label}</button>`;
+  const guard = devices.filter(stats.lacksGuard);
   $('pack-presets').innerHTML = preset('due', `逾 60 天＋故障（${due.length}）`, due)
+    + preset('guard', `缺防護（${guard.length}）`, guard)
     + preset('all', `全部（${devices.length}）`, devices) + '<button type="button" data-preset="none">清除</button>';
   $('pack-list').innerHTML = devices.length
     ? devices.map(d => packRow(d, packSel.has(String(d.id)))).join('')
@@ -439,7 +480,7 @@ $('scr-pack').addEventListener('click', async e => {
   }
   if (preset) {
     const devices = await store.getDevices(store.settings.projectId);
-    const list = { due: devices.filter(stats.isDue), all: devices, none: [] }[preset.dataset.preset];
+    const list = { due: devices.filter(stats.isDue), guard: devices.filter(stats.lacksGuard), all: devices, none: [] }[preset.dataset.preset];
     packSel = new Set(list.map(d => String(d.id)));
     return renderPack();
   }
@@ -455,7 +496,6 @@ $('scr-pack').addEventListener('click', async e => {
 
 /* ═══════════ 統計 ═══════════ */
 
-const DUE_DAYS = 60; // 地圖逾期變黃的天數（store.deviceStatus）
 const REASON_COLOR = { '沒電': 'var(--red)', '故障': '#7b2cbf', '記憶卡滿': 'var(--amber)' };
 const statsState = { tab: 'down', span: 'month', y: null, m: null };
 let workTsv = '';
@@ -492,8 +532,6 @@ async function renderStats() {
   $('stats-title').textContent = `統計${project ? ` · ${project.name}` : ''}`;
   $('stats-tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
 
-  // 續航看全部月份，不用選期間
-  $('stats-period').hidden = tab === 'life';
   $('stats-label').textContent = span === 'year' ? `${y} 年` : `${y} 年 ${m + 1} 月`;
   $('stats-span').textContent = span === 'year' ? '看單月' : '看全年';
   $('stats-next').disabled = statsPeriod()[1] > now.getTime();
@@ -508,7 +546,6 @@ async function renderStats() {
   $('stats-body').innerHTML = !project
     ? '<div class="hint">還沒有任何專案。</div>'
     : tab === 'down' ? downHtml(devices, records, from, to)
-    : tab === 'life' ? lifeHtml(devices, records)
     : workHtml(records, from, to, project.name);
 }
 
@@ -557,37 +594,6 @@ function trendHtml(devices, records) {
     return `<div${cur}>${bar}${mm + 1}月</div>`;
   }).join('');
   return `<div class="card"><h3>${span === 'year' ? `${y} 年各月` : '近 6 個月'}</h3><div class="cols">${cols}</div></div>`;
-}
-
-// 用顯示出來的整數天數比，免得畫面寫「60 天」卻說比 60 天短
-const shortLife = g => r0(g.min) < DUE_DAYS;
-
-function lifeTable(groups, empty) {
-  if (!groups.length) return `<p class="sec-note" style="margin:0;">${empty}</p>`;
-  return '<table class="t"><tr><th>型號 · 設定</th><th>次數</th><th>最短</th><th>中位數</th></tr>'
-    + groups.map(g => `<tr><td>${esc(g.model)}<small>${esc(g.sub)}</small></td><td>${g.n}</td>`
-      + `<td${shortLife(g) ? ' class="red"' : ''}>${r0(g.min)} 天</td><td>${r0(g.median)} 天</td></tr>`).join('')
-    + '</table>';
-}
-
-function lifeHtml(devices, records) {
-  const bat = stats.lifeStats(devices, records, 'battery');
-  const sd = stats.lifeStats(devices, records, 'sd');
-  const active = devices.filter(d => !d.retired);
-  const modelOf = d => d.cameraModel || '（未填型號）';
-  const batWarn = bat.filter(shortLife).map(g => {
-    const where = active.filter(d => modelOf(d) === g.model && (d.batteryType || '（未填類型）') === g.sub).map(store.stationLabel);
-    return `⚠ ${g.model} 用${g.sub}最短 ${r0(g.min)} 天就沒電，比逾期變色的 ${DUE_DAYS} 天短`
-      + `${where.length ? `（現在用${g.sub}的點：${where.join('、')}）` : ''}。`;
-  });
-  const sdWarn = sd.filter(shortLife)
-    .map(g => `⚠ ${g.model}（${g.sub}）最短 ${r0(g.min)} 天記憶卡就滿，比逾期變色的 ${DUE_DAYS} 天短。`);
-  const warn = list => list.map(t => `<div class="warnline">${esc(t)}</div>`).join('');
-
-  return `<div class="card"><h3>🔋 換電池後幾天沒電</h3>${lifeTable(bat, '還沒有資料：巡檢時填了「中間有停：沒電」才算得出來。')}${warn(batWarn)}</div>`
-    + `<div class="card"><h3>💾 換卡後幾天滿</h3>${lifeTable(sd, '還沒有資料：巡檢時填了「中間有停：記憶卡滿」才算得出來。')}${warn(sdWarn)}</div>`
-    + '<p class="foot">只算得到「有停」的那幾次：巡檢時還有電就換掉的，不知道本來還能撐多久，所以不列入。'
-    + '沒換過電池的從架設日起算，換機的新相機沿用舊相機的電池。資料從 v0.3 開始填「中間有停」才有，前幾個月次數會很少。</p>';
 }
 
 function workHtml(records, from, to, projectName) {
@@ -651,23 +657,46 @@ $('add-model').addEventListener('change', e => addCfg.setModel(e.target.value));
 addCfg.setModel('');
 
 $('add-gps').addEventListener('click', e => fillGps($('add-coord'), e.target));
+$('add-pick').addEventListener('click', () => pickInto($('add-coord')));
+
+/** 在地圖上選位置，寫回座標欄；地圖先停在欄位裡的座標（沒填就用 fallback） */
+async function pickInto(coordEl, fallback = null) {
+  const cur = form.parseCoord(coordEl.value) || fallback;
+  const devices = (await store.getDevices(store.settings.projectId))
+    .map(d => ({ label: store.stationLabel(d), lat: d.lat, lng: d.lng }));
+  const start = cur && Number.isFinite(cur.lat) && Number.isFinite(cur.lng) ? [cur.lat, cur.lng] : null;
+  const picked = await map.pickLocation({ start, devices });
+  if (picked) coordEl.value = `${picked[0].toFixed(5)}, ${picked[1].toFixed(5)}`;
+}
+
+/** 同專案還在用的相機已經用了這個樣點編號 → 那台；沒有回 null（exceptId：自己那台不算） */
+async function stationOwner(projectId, station, exceptId = null) {
+  const key = stats.stationKey(station);
+  return (await store.getDevices(projectId))
+    .find(d => String(d.id) !== String(exceptId) && stats.stationKey(d.stationId) === key) || null;
+}
 
 $('add-save').addEventListener('click', async () => {
   const scope = $('scr-add');
   form.clearErrors(scope);
 
   let ok = form.require($('add-station'), '請輸入樣點編號');
-  ok = form.require($('add-device-id'), '請輸入設備序號') && ok;
+  ok = form.requireCode($('add-device-id'), '相機編號') && ok;
   ok = form.require($('add-model'), '請選擇相機型號') && ok;
-  ok = form.require($('add-sd'), '請輸入記憶卡號碼') && ok;
+  ok = form.requireCode($('add-sd'), '記憶卡編號') && ok;
   ok = form.requireCoord($('add-coord')) && ok;
   ok = addCfg.validate() && ok;
   if (!$('add-project').value) { alert('請先建立專案'); ok = false; }
   if (!ok) return;
 
-  const id = $('add-device-id').value.trim();
+  const id = form.codeValue($('add-device-id'));
   if (await store.getDevice(id)) {
-    form.markError($('add-device-id'), '此設備序號已存在');
+    form.markError($('add-device-id'), `${id} 已經存在`);
+    return;
+  }
+  const owner = await stationOwner($('add-project').value, $('add-station').value);
+  if (owner) {
+    form.markError($('add-station'), `這個樣點已經有 ${owner.id}，樣點編號不能重複`);
     return;
   }
 
@@ -680,7 +709,7 @@ $('add-save').addEventListener('click', async () => {
     qrCode: id,
     cameraModel: $('add-model').value,
     ...form.parseCoord($('add-coord').value),
-    sdCard: form.sdValue($('add-sd-prefix'), $('add-sd')),
+    sdCard: form.codeValue($('add-sd')),
     batteryType: $('add-battery-type').value,
     batteryPct: Number($('add-battery-pct').value),
     config: addCfg.read(),
@@ -794,11 +823,71 @@ async function renderPatrol({ auto = false, deviceId } = {}) {
   if (auto) pickNearest(devices);
 }
 
-const splitSd = card => {
-  const prefix = form.sdPrefixOf(card);
-  const text = String(card || '');
-  return { prefix, num: text.startsWith(prefix) ? text.slice(prefix.length) : text };
-};
+/* ── 舊設備沒填過的欄位：這次巡檢補問（必填）── */
+
+const ASK_LABEL = { ironCase: '鐵殼', locked: '上鎖', rainCover: '遮雨板', mount: '固定方式' };
+const ASK_CONFIG_KEYS = ['videoSecNight', 'ironCase', 'locked', 'rainCover', 'mount'];
+
+/** prev：修改紀錄時，上次存的答案 */
+function renderAsk(device, prev = {}) {
+  const missing = missingFields(device);
+  $('ask-box').hidden = !missing.length;
+  $('ask-fields').innerHTML = missing.map(key => {
+    const v = prev[key];
+    if (key === 'stationId') {
+      return `<label class="f">樣點編號</label><input type="text" data-ask="stationId" value="${esc(v ?? '')}" placeholder="例：S-03">`;
+    }
+    if (key === 'cameraModel') return `<label class="f">相機型號</label><select data-ask="cameraModel">${MODEL_OPTIONS}</select>`;
+    if (key === 'videoSecNight') {
+      return `<label class="f">夜間影片秒數</label><input type="number" data-ask="videoSecNight" min="1" inputmode="numeric" value="${v ?? ''}">`;
+    }
+    const opts = key === 'mount' ? MOUNTS.map(m => [m, m]) : [['true', '有'], ['false', '沒有']];
+    return `<div class="ask-row"><span>${ASK_LABEL[key]}</span><div class="seg" data-ask="${key}">`
+      + opts.map(([val, text]) => `<button type="button" data-value="${val}"${v != null && String(v) === val ? ' class="on"' : ''}>${text}</button>`).join('')
+      + '</div></div>';
+  }).join('');
+  const modelSel = $('ask-fields').querySelector('[data-ask="cameraModel"]');
+  if (modelSel) modelSel.value = prev.cameraModel || '';
+}
+
+$('ask-fields').addEventListener('click', e => {
+  const btn = e.target.closest('.seg button');
+  if (btn) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+});
+
+/** 補問的答案 { 欄位: 值 }；沒回答的是 undefined */
+function readAsk() {
+  const out = {};
+  $('ask-fields').querySelectorAll('[data-ask]').forEach(el => {
+    const key = el.dataset.ask;
+    if (el.classList.contains('seg')) {
+      const v = el.querySelector('button.on')?.dataset.value;
+      out[key] = v == null ? undefined : key === 'mount' ? v : v === 'true';
+    } else if (key === 'videoSecNight') {
+      out[key] = Number(el.value) > 0 ? Number(el.value) : undefined;
+    } else {
+      out[key] = el.value.trim() || undefined;
+    }
+  });
+  return out;
+}
+
+/** 都要回答；換機時不必回答相機型號（用新相機的）；樣點編號不能和別台重複 */
+async function validateAsk(answers, device, swapped) {
+  let ok = true;
+  for (const el of $('ask-fields').querySelectorAll('[data-ask]')) {
+    const key = el.dataset.ask;
+    if (key === 'cameraModel' && swapped) continue;
+    if (answers[key] === undefined) {
+      form.markError(el, key === 'videoSecNight' ? '請填夜間影片秒數' : '請回答');
+      ok = false;
+    } else if (key === 'stationId') {
+      const owner = await stationOwner(device.projectId, answers.stationId, device.id);
+      if (owner) { form.markError(el, `這個樣點已經有 ${owner.id}，樣點編號不能重複`); ok = false; }
+    }
+  }
+  return ok;
+}
 
 async function loadPatrolDevice(deviceId) {
   // 修改模式：比對卡與預設值用「這筆紀錄之前」的設備狀態
@@ -833,7 +922,6 @@ async function loadPatrolDevice(deviceId) {
   $('pt-new-id').value = '';
   $('pt-new-model').value = '';
   $('pt-swap-reason').value = '';
-  $('pt-sd-new-prefix').value = form.sdPrefixOf(device.sdCard);
   $('pt-sd-new').value = '';
   $('pt-stop-date').value = '';
   $('pt-stop-time').value = '';
@@ -843,6 +931,7 @@ async function loadPatrolDevice(deviceId) {
   $('pt-note').value = '';
   $('pt-bat-type').value = device.batteryType || '鹼性';
   ptCfg.fill(device.config, device.cameraModel);
+  renderAsk(device, editing ? { ...(editing.payload.config || {}), ...(editing.payload.fill || {}) } : {});
   $('pt-coord').value = '';
 
   // 修改已上傳的紀錄：換機不能在這時才加（雲端不會補建新相機），原本的照片已在雲端、本機沒有
@@ -882,15 +971,11 @@ function fillFromRecord(p, device) {
   };
   set('pt-down', p.running === false);
   set('pt-swap', p.cameraSwapped, 'swap-new');
-  $('pt-new-id').value = p.newDeviceId || '';
+  $('pt-new-id').value = form.codeDigits(p.newDeviceId);
   $('pt-new-model').value = p.newCameraModel || '';
   $('pt-swap-reason').value = p.swapReason || '';
   set('pt-sd-changed', p.sdChanged, 'sd-new');
-  if (p.sdChanged) {
-    const { prefix, num } = splitSd(p.sdNew);
-    $('pt-sd-new-prefix').value = prefix;
-    $('pt-sd-new').value = num;
-  }
+  if (p.sdChanged) $('pt-sd-new').value = form.codeDigits(p.sdNew);
   set('pt-stopped', p.stoppedMidway, 'stop-new');
   if (p.stoppedMidway) {
     const [day, time = ''] = String(p.stoppedAt || '').split(' ');
@@ -919,6 +1004,11 @@ $('patrol-device').addEventListener('change', e => {
   loadPatrolDevice(e.target.value);
 });
 $('pt-gps').addEventListener('click', e => fillGps($('pt-coord'), e.target));
+// 地圖先停在相機原本的位置
+$('pt-pick').addEventListener('click', async () => {
+  const device = await patrolBaseDevice();
+  pickInto($('pt-coord'), device ? { lat: device.lat, lng: device.lng } : null);
+});
 
 $('pt-new-model').innerHTML = MODEL_OPTIONS;
 
@@ -951,31 +1041,34 @@ $('pt-save').addEventListener('click', async () => {
   const deviceId = $('patrol-device').value;
   const device = await patrolBaseDevice();
   const swapped = $('pt-swap').classList.contains('on');
-  const newId = $('pt-new-id').value.trim();
+  const newId = form.codeValue($('pt-new-id'));
   const newModel = $('pt-new-model').value;
   const sdChanged = $('pt-sd-changed').classList.contains('on');
   const stopped = $('pt-stopped').classList.contains('on');
   const locChanged = $('pt-loc-changed').classList.contains('on');
   const patrolAt = editing ? editing.payload.patrolAt : store.stamp();
+  const answers = readAsk();
 
-  const model = swapped && newModel ? newModel : device.cameraModel;
+  // 補填了相機型號（舊設備沒填過）也算換了型號：畫質選項要照新型號重新確認
+  const model = swapped && newModel ? newModel : (answers.cameraModel || device.cameraModel);
   ptCfg.setModel(model); // 選了新型號又關掉「更換相機」時，退回原型號的選項
   if (model !== device.cameraModel) openConfigForModel(model);
   const cfgChanged = $('pt-cfg-changed').classList.contains('on');
 
   let ok = form.require($('pt-battery-pct'), '請選擇目前電量');
+  ok = await validateAsk(answers, device, swapped) && ok;
   if (swapped) {
-    ok = form.require($('pt-new-id'), '請輸入新設備序號') && ok;
+    ok = form.requireCode($('pt-new-id'), '新相機編號') && ok;
     ok = form.require($('pt-new-model'), '請選擇新相機型號') && ok;
     ok = form.require($('pt-swap-reason'), '請寫更換原因') && ok;
     // 修改時，原本換上的那台（本機已存在）不算重複
     const ownNewId = editing?.payload.newDeviceId;
     if (newId && newId !== ownNewId && (newId === deviceId || await store.getDevice(newId))) {
-      form.markError($('pt-new-id'), '此設備序號已存在');
+      form.markError($('pt-new-id'), `${newId} 已經存在`);
       ok = false;
     }
   }
-  if (sdChanged) ok = form.require($('pt-sd-new'), '請輸入新記憶卡號碼') && ok;
+  if (sdChanged) ok = form.requireCode($('pt-sd-new'), '新記憶卡編號') && ok;
   if (stopped) {
     // 停的時間要落在上次巡檢和這次之間（日期格式 YYYY-MM-DD 可以直接比大小）
     const day = $('pt-stop-date').value;
@@ -995,12 +1088,20 @@ $('pt-save').addEventListener('click', async () => {
   ok = form.validateCustomFields($('pt-custom'), patrolDefs) && ok;
   if (!ok) return;
 
+  // 補問的答案：設定類的併進這次的設定（沒開「設定有變動」就用原本的設定加上答案），樣點／型號寫回設備
+  const cfgAnswers = Object.fromEntries(ASK_CONFIG_KEYS.filter(k => answers[k] !== undefined).map(k => [k, answers[k]]));
+  const answeredCfg = Object.keys(cfgAnswers).length > 0;
+  const fill = {};
+  if (answers.stationId) fill.stationId = answers.stationId;
+  if (answers.cameraModel && !swapped) fill.cameraModel = answers.cameraModel;
+
   const record = {
     recordId: editing ? editing.payload.recordId : store.makeRecordId(),
     patrolAt,
     projectId: device.projectId,
     deviceId,
-    stationId: device.stationId || '',
+    stationId: fill.stationId || device.stationId || '',
+    fill: Object.keys(fill).length ? fill : null,
     inspector: editing ? editing.payload.inspector : store.settings.inspector,
     running: !$('pt-down').classList.contains('on'),
     cameraSwapped: swapped,
@@ -1008,7 +1109,7 @@ $('pt-save').addEventListener('click', async () => {
     newCameraModel: swapped ? newModel : '',
     swapReason: swapped ? $('pt-swap-reason').value.trim() : '',
     sdChanged,
-    sdNew: sdChanged ? form.sdValue($('pt-sd-new-prefix'), $('pt-sd-new')) : '',
+    sdNew: sdChanged ? form.codeValue($('pt-sd-new')) : '',
     sdRetrieved: sdChanged ? (device.sdCard || '') : '',
     stoppedMidway: stopped,
     stoppedAt: stopped ? [$('pt-stop-date').value, $('pt-stop-time').value].filter(Boolean).join(' ') : '',
@@ -1016,8 +1117,8 @@ $('pt-save').addEventListener('click', async () => {
     batteryChanged: $('pt-bat-changed').classList.contains('on'),
     batteryTypeNew: $('pt-bat-changed').classList.contains('on') ? $('pt-bat-type').value : '',
     batteryPct: Number($('pt-battery-pct').value),
-    configChanged: cfgChanged,
-    config: cfgChanged ? ptCfg.read() : null,
+    configChanged: cfgChanged || answeredCfg,
+    config: cfgChanged || answeredCfg ? { ...(cfgChanged ? ptCfg.read() : device.config), ...cfgAnswers } : null,
     locationChanged: locChanged,
     lat: locChanged ? form.parseCoord($('pt-coord').value).lat : null,
     lng: locChanged ? form.parseCoord($('pt-coord').value).lng : null,

@@ -37,7 +37,26 @@ const OTHER = '__other';
 const NO_SPEC = { photo: [], video: [], videoSec: null };
 
 /** 現場防護：設定裡的欄位名稱與顯示文字 */
-const GUARDS = [['ironCase', 'iron', '鐵殼'], ['locked', 'lock', '上鎖'], ['rainCover', 'rain', '遮雨板']];
+export const GUARDS = [['ironCase', 'iron', '鐵殼'], ['locked', 'lock', '上鎖'], ['rainCover', 'rain', '遮雨板']];
+/** 固定方式（單選；沒選＝沒填過） */
+export const MOUNTS = ['角鋼', '綁帶'];
+
+const isVideo = mode => mode === '影片' || mode === '照片+影片';
+
+/**
+ * 之後才加的欄位，舊設備沒填過的：巡檢時要補問（之後新增欄位也加在這裡，就會自動被問）。
+ * 回傳這台還沒填的欄位名稱，順序就是畫面上問的順序
+ */
+export function missingFields(d) {
+  const cfg = d.config || {};
+  const out = [];
+  if (!String(d.stationId ?? '').trim()) out.push('stationId');
+  if (!d.cameraModel) out.push('cameraModel');
+  if (isVideo(cfg.mode) && cfg.videoSecNight == null) out.push('videoSecNight');
+  GUARDS.forEach(([key]) => { if (cfg[key] == null) out.push(key); });
+  if (!cfg.mount) out.push('mount');
+  return out;
+}
 
 /** 設定摘要：上次巡檢比對卡用（後端 configSummary_ 寫進試算表的格式相同） */
 export function configSummary(cfg = {}) {
@@ -55,6 +74,7 @@ export function configSummary(cfg = {}) {
   if (GUARDS.some(([key]) => cfg[key] != null)) {
     parts.push(GUARDS.map(([key, , label]) => `${label}${cfg[key] ? '✓' : cfg[key] === false ? '✗' : '—'}`).join(' '));
   }
+  if (cfg.mount) parts.push(`固定${cfg.mount}`);
   return parts.join(' · ');
 }
 
@@ -103,6 +123,14 @@ export function configForm(prefix) {
   ['photo-q', 'video-q'].forEach(name => el(name).addEventListener('change', () => {
     el(`${name}-other`).hidden = el(name).value !== OTHER;
   }));
+  // 固定方式：單選，再點一次取消
+  el('mount').addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const on = !btn.classList.contains('on');
+    el('mount').querySelectorAll('button').forEach(b => b.classList.toggle('on', on && b === btn));
+  });
+  const mountValue = () => el('mount').querySelector('button.on')?.dataset.value || '';
 
   /** 換型號：新型號沒有的畫質就清掉讓使用者重選 */
   function setModel(m) {
@@ -127,6 +155,7 @@ export function configForm(prefix) {
     el('video-sec').value = cfg.videoSec ?? '';
     el('video-sec-night').value = cfg.videoSecNight ?? cfg.videoSec ?? ''; // 舊資料沒有夜間：先帶日間的
     GUARDS.forEach(([key, id]) => el(id).classList.toggle('on', !!cfg[key]));
+    el('mount').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.value === cfg.mount));
     el('sens').value = cfg.sensitivity || '中';
     el('interval').value = cfg.interval ?? '';
     const hours = cfg.workHours && cfg.workHours !== '全天' ? cfg.workHours.split('-') : null;
@@ -154,6 +183,7 @@ export function configForm(prefix) {
         ? `${el('hours-start').value}-${el('hours-end').value}`
         : '全天',
       ...Object.fromEntries(GUARDS.map(([key, id]) => [key, el(id).classList.contains('on')])),
+      mount: mountValue(),
       note: el('config-note').value.trim(),
     };
   }
@@ -176,6 +206,8 @@ export function configForm(prefix) {
       need(el('hours-start').value, el('hours-start'), '請填開始時間');
       need(el('hours-end').value, el('hours-end'), '請填結束時間');
     }
+    // 新設備一定要選；巡檢改設定時，舊設備沒填過的由「這台還沒填過」那一格問
+    if (prefix === 'add') need(mountValue(), el('mount'), '請選固定方式');
     return ok;
   }
 

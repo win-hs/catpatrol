@@ -3,10 +3,35 @@ export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
-/** 記憶卡編號＝前綴（野／Wv）＋號碼 */
-export const SD_PREFIXES = ['野', 'Wv'];
-export const sdValue = (prefixEl, numEl) => (numEl.value.trim() ? prefixEl.value + numEl.value.trim() : '');
-export const sdPrefixOf = card => SD_PREFIXES.find(p => String(card || '').startsWith(p)) || SD_PREFIXES[0];
+/* ---------- 編號：相機 CA＋3 碼、記憶卡 SD＋3 碼（code.gs 的 camId_ / sdId_ 規則相同） ---------- */
+
+const code = (re, prefix) => v => {
+  const m = String(v ?? '').trim().match(re);
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 999 ? prefix + String(n).padStart(3, '0') : v;
+};
+/** 1、132、ca-78 → CA001、CA132、CA078；只認 1–999，看不懂的原樣回傳 */
+export const camId = code(/^(?:ca)?[\s\-_]*(\d+)$/i, 'CA');
+/** 野12、Wv12、12 → SD012（野／Wv 意思一樣） */
+export const sdId = code(/^(?:sd|野|wv)?[\s\-_]*(\d+)$/i, 'SD');
+export const isCamId = v => /^CA\d{3}$/.test(String(v));
+export const isSdId = v => /^SD\d{3}$/.test(String(v));
+
+/** 只填數字的編號欄（前面固定顯示 CA／SD）：存檔用的完整編號，填錯回 null */
+export function codeValue(el) {
+  const prefix = el.dataset.code;
+  const full = (prefix === 'SD' ? sdId : camId)(el.value);
+  return (prefix === 'SD' ? isSdId : isCamId)(full) && /^\d+$/.test(el.value.trim()) ? full : null;
+}
+
+/** 已存的編號填回只填數字的欄位（CA012 → 012） */
+export const codeDigits = v => String(v ?? '').replace(/^\D+/, '');
+
+export function requireCode(el, label) {
+  if (codeValue(el)) return true;
+  markError(el, el.value.trim() ? `${label}只能填 1–999 的數字` : `請輸入${label}`);
+  return false;
+}
 
 /* ---------- 驗證 ---------- */
 

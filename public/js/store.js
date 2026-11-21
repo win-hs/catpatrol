@@ -180,6 +180,9 @@ export async function addRecord(record, photoIds = [], queueMeta = {}, type = 'a
   }
   if (record.configChanged) updated.config = record.config;
   if (record.locationChanged) { updated.lng = record.lng; updated.lat = record.lat; }
+  // 舊設備沒填過、這次補上的樣點編號／相機型號（雲端收到紀錄時做同樣的事）
+  if (record.fill?.stationId) updated.stationId = record.fill.stationId;
+  if (record.fill?.cameraModel) updated.cameraModel = record.fill.cameraModel;
 
   if (record.cameraSwapped) {
     // 舊相機撤下；新相機接手位置、耗材與設定，之後的巡檢都對新編號（後端收到這筆紀錄時做同樣的事）
